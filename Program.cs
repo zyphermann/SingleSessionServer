@@ -4,6 +4,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using System;
 using System.Net;
 using System.Net.Mail;
@@ -20,7 +21,14 @@ builder.Services.Configure<AppOptions>(builder.Configuration.GetSection("App"));
 // Caches & Services
 builder.Services.AddMemoryCache(); // demo: replace with IDistributedCache/Redis in production
 builder.Services.AddSingleton<TokenStore>();
-builder.Services.AddSingleton<SessionManager>();
+
+var connectionString = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("Missing ConnectionStrings:Default configuration for PostgreSQL database.");
+
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+builder.Services.AddScoped<DeviceStore>();
+builder.Services.AddScoped<SessionManager>();
 
 // Choose one email sender:
 // 1) Real SMTP:
@@ -216,56 +224,138 @@ sealed class TokenStore
 // Single Active Session manager (player -> single sess)
 sealed class SessionManager
 {
-    private readonly IMemoryCache _cache;
-    public SessionManager(IMemoryCache cache) => _cache = cache;
+    private static readonly TimeSpan DefaultSlidingTtl = TimeSpan.FromHours(8);
+    private readonly NpgsqlDataSource _dataSource;
+
+    public SessionManager(NpgsqlDataSource dataSource) => _dataSource = dataSource;
 
     // Create a new session (replaces any previous one for the player)
-    public System.Threading.Tasks.Task<string> CreateOrReplaceAsync(string playerId, TimeSpan ttl)
+    public async System.Threading.Tasks.Task<string> CreateOrReplaceAsync(string playerId, TimeSpan ttl)
     {
-        var sessId = NewToken();
-        _cache.Set($"active:{playerId}", sessId, ttl);
-        _cache.Set($"sess:{sessId}", playerId, ttl);
-        return System.Threading.Tasks.Task.FromResult(sessId);
+        if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
+            throw new ArgumentException("Invalid player id.", nameof(playerId));
+
+        var sessionGuid = Guid.NewGuid();
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+
+        await using (var revokeCmd = conn.CreateCommand())
+        {
+            revokeCmd.Transaction = tx;
+            revokeCmd.CommandText =
+                """
+                UPDATE sessions
+                SET revoked_at = NOW()
+                WHERE player_id = @playerId
+                  AND revoked_at IS NULL;
+                """;
+            revokeCmd.Parameters.AddWithValue("playerId", playerGuid);
+            await revokeCmd.ExecuteNonQueryAsync();
+        }
+
+        await using (var insertCmd = conn.CreateCommand())
+        {
+            insertCmd.Transaction = tx;
+            insertCmd.CommandText =
+                """
+                INSERT INTO sessions (session_id, player_id, expires_at)
+                VALUES (@sessionId, @playerId, @expiresAt);
+                """;
+            insertCmd.Parameters.AddWithValue("sessionId", sessionGuid);
+            insertCmd.Parameters.AddWithValue("playerId", playerGuid);
+            insertCmd.Parameters.AddWithValue("expiresAt", DateTime.UtcNow.Add(ttl));
+            await insertCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+        return sessionGuid.ToString();
     }
 
     // Validate that sessId is the active one for this player
-    public System.Threading.Tasks.Task<bool> ValidateAsync(string playerId, string sessId, bool sliding)
+    public async System.Threading.Tasks.Task<bool> ValidateAsync(string playerId, string sessId, bool sliding)
     {
-        var keyActive = $"active:{playerId}";
-        if (_cache.TryGetValue<string>(keyActive, out var current) && current == sessId)
+        if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
+            return false;
+        if (!Guid.TryParse(sessId, out var sessionGuid) || sessionGuid == Guid.Empty)
+            return false;
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT expires_at
+            FROM sessions
+            WHERE player_id = @playerId
+              AND session_id = @sessionId
+              AND revoked_at IS NULL;
+            """;
+        cmd.Parameters.AddWithValue("playerId", playerGuid);
+        cmd.Parameters.AddWithValue("sessionId", sessionGuid);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return false;
+
+        var expiresAt = reader.IsDBNull(0) ? (DateTime?)null : reader.GetFieldValue<DateTime>(0);
+        await reader.CloseAsync();
+
+        if (expiresAt is DateTime exp && exp < DateTime.UtcNow)
         {
-            if (sliding)
-            {
-                // Renew TTL by rewriting both keys (simple sliding expiration)
-                if (_cache.TryGetValue<string>($"sess:{sessId}", out var pid))
-                {
-                    // For IMemoryCache we need to re-set to extend TTL
-                    var ttl = TimeSpan.FromHours(8);
-                    _cache.Set(keyActive, sessId, ttl);
-                    _cache.Set($"sess:{sessId}", pid, ttl);
-                }
-            }
-            return System.Threading.Tasks.Task.FromResult(true);
+            await MarkRevokedAsync(conn, sessionGuid);
+            return false;
         }
-        return System.Threading.Tasks.Task.FromResult(false);
+
+        if (sliding)
+        {
+            await using var updateCmd = conn.CreateCommand();
+            updateCmd.CommandText =
+                """
+                UPDATE sessions
+                SET expires_at = @expiresAt
+                WHERE session_id = @sessionId;
+                """;
+            updateCmd.Parameters.AddWithValue("expiresAt", DateTime.UtcNow.Add(DefaultSlidingTtl));
+            updateCmd.Parameters.AddWithValue("sessionId", sessionGuid);
+            await updateCmd.ExecuteNonQueryAsync();
+        }
+
+        return true;
     }
 
     // If this sessId is active for the player, revoke it
-    public System.Threading.Tasks.Task RevokeIfActiveAsync(string playerId, string sessId)
+    public async System.Threading.Tasks.Task RevokeIfActiveAsync(string playerId, string sessId)
     {
-        var keyActive = $"active:{playerId}";
-        if (_cache.TryGetValue<string>(keyActive, out var current) && current == sessId)
-        {
-            _cache.Remove(keyActive);
-        }
-        _cache.Remove($"sess:{sessId}");
-        return System.Threading.Tasks.Task.CompletedTask;
+        if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
+            return;
+        if (!Guid.TryParse(sessId, out var sessionGuid) || sessionGuid == Guid.Empty)
+            return;
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            """
+            UPDATE sessions
+            SET revoked_at = NOW()
+            WHERE player_id = @playerId
+              AND session_id = @sessionId
+              AND revoked_at IS NULL;
+            """;
+        cmd.Parameters.AddWithValue("playerId", playerGuid);
+        cmd.Parameters.AddWithValue("sessionId", sessionGuid);
+        await cmd.ExecuteNonQueryAsync();
     }
 
-    private static string NewToken()
+    private static async System.Threading.Tasks.Task MarkRevokedAsync(NpgsqlConnection conn, Guid sessionId)
     {
-        Span<byte> bytes = stackalloc byte[32];
-        RandomNumberGenerator.Fill(bytes);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            """
+            UPDATE sessions
+            SET revoked_at = NOW()
+            WHERE session_id = @sessionId
+              AND revoked_at IS NULL;
+            """;
+        cmd.Parameters.AddWithValue("sessionId", sessionId);
+        await cmd.ExecuteNonQueryAsync();
     }
 }

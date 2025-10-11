@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  singlesessionserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: singlesessionserver
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8880:8880"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    env_file:
+      - .env
+    # volumes:
+    #   - ./appsettings.Development.json:/app/appsettings.Development.json:ro
+
+  db:
+    image: postgres:16-alpine
+    container_name: singlesessionserver_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$DB_USER -d $$DB_DATABASE"]
+      interval: 4s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: "${DB_DATABASE}"
+      POSTGRES_USER: "${DB_USER}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+  adminer:
+    image: adminer
+    container_name: singlesessionserver_adminer
+    restart: unless-stopped
+    ports:
+      - "8881:8080"
+    depends_on:
+      - db
+
+volumes:
+  dbdata:

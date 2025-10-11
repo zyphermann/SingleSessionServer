@@ -6,10 +6,12 @@ internal static class SessionEndpoints
 {
     public static void MapSessionEndpoints(this WebApplication app)
     {
-        app.MapPost("/session/login", async (HttpRequest req, HttpResponse res, SessionManager sm) =>
+        app.MapPost("/session/login", async (HttpRequest req, HttpResponse res, DeviceStore devices, SessionManager sm) =>
         {
             if (!req.Cookies.TryGetValue("player_id", out var pid) || string.IsNullOrWhiteSpace(pid))
                 return Results.BadRequest(new { error = "No player_id. Call /device/init first." });
+
+            await devices.TouchAsync(pid);
 
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
             var sessId = await sm.CreateOrReplaceAsync(pid, TimeSpan.FromHours(8));

@@ -8,36 +8,39 @@ internal static class DeviceEndpoints
 {
     public static void MapDeviceEndpoints(this WebApplication app)
     {
-        app.MapPost("/device/init", (HttpRequest req, HttpResponse res) =>
+        app.MapPost("/device/init", async (HttpRequest req, HttpResponse res, DeviceStore devices) =>
         {
-            if (!req.Cookies.TryGetValue("player_id", out var pid) || string.IsNullOrWhiteSpace(pid))
-            {
-                pid = Guid.NewGuid().ToString();
-                var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
-                EndpointHelpers.SetCookie(res, "player_id", pid, https, TimeSpan.FromDays(365));
-            }
-            return Results.Json(new { playerId = pid });
+            req.Cookies.TryGetValue("player_id", out var pid);
+            var actual = await devices.EnsureAsync(pid);
+            var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
+            EndpointHelpers.SetCookie(res, "player_id", actual, https, TimeSpan.FromDays(365));
+            return Results.Json(new { playerId = actual });
         });
 
         app.MapPost("/device/transfer/start", async (
             HttpRequest req,
             HttpResponse res,
+            DeviceStore devices,
             TokenStore tokens,
             IEmailSender mailer,
             IConfiguration cfg) =>
         {
-            if (!req.Cookies.TryGetValue("player_id", out var pid) || string.IsNullOrWhiteSpace(pid))
-            {
-                pid = Guid.NewGuid().ToString();
-                var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
-                EndpointHelpers.SetCookie(res, "player_id", pid, https, TimeSpan.FromDays(365));
-            }
+            req.Cookies.TryGetValue("player_id", out var pid);
+            var actual = await devices.EnsureAsync(pid);
+            var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
+            EndpointHelpers.SetCookie(res, "player_id", actual, https, TimeSpan.FromDays(365));
 
             var body = await System.Text.Json.JsonSerializer.DeserializeAsync<EmailRequest>(req.Body);
             if (body is null || string.IsNullOrWhiteSpace(body.Email) || !IsLikelyEmail(body.Email))
                 return Results.BadRequest(new { error = "Invalid email" });
 
-            var token = tokens.CreateToken(pid, TimeSpan.FromMinutes(10)); // one-time, 10 min
+            body = body with { Email = body.Email.Trim() };
+
+            var emailAttached = await devices.TrySetEmailAsync(actual, body.Email);
+            if (!emailAttached)
+                return Results.Conflict(new { error = "Email already registered" });
+
+            var token = tokens.CreateToken(actual, TimeSpan.FromMinutes(10)); // one-time, 10 min
             var baseUrl = cfg.GetValue<string>("App:PublicBaseUrl")?.TrimEnd('/')
                          ?? $"{req.Scheme}://{req.Host.ToUriComponent()}";
             var link = $"{baseUrl}/device/transfer/accept?token={Uri.EscapeDataString(token)}";
@@ -52,7 +55,12 @@ internal static class DeviceEndpoints
             return Results.Json(new { ok = true });
         });
 
-        app.MapGet("/device/transfer/accept", async (HttpRequest req, HttpResponse res, TokenStore tokens, SessionManager sm) =>
+        app.MapGet("/device/transfer/accept", async (
+            HttpRequest req,
+            HttpResponse res,
+            DeviceStore devices,
+            TokenStore tokens,
+            SessionManager sm) =>
         {
             var token = req.Query["token"].ToString();
             if (string.IsNullOrWhiteSpace(token))
@@ -61,6 +69,8 @@ internal static class DeviceEndpoints
             var playerId = tokens.ConsumeToken(token);
             if (playerId is null)
                 return Results.StatusCode(StatusCodes.Status410Gone);
+
+            await devices.TouchAsync(playerId);
 
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
             EndpointHelpers.SetCookie(res, "player_id", playerId, https, TimeSpan.FromDays(365));
