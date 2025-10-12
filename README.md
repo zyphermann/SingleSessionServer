@@ -1,54 +1,65 @@
 # SingleSessionServer
 
-Eine Minimal-API, die genau eine aktive Session pro Spieler zulässt.
+A minimal API that allows exactly one active session per player.
 
-## Voraussetzungen
-- .NET 8 SDK (getestet mit .NET 8.0)
-- PostgreSQL 16 (lokal erreichbar oder via Docker Compose aus diesem Projekt)
-- Optional: konfigurierte SMTP-Zugangsdaten in `appsettings.json`, wenn echte E-Mails versendet werden sollen.
+## Prerequisites
+- .NET 8 SDK (tested with .NET 8.0)
+- PostgreSQL 16 (reachable locally or via Docker Compose from this project)
+- Optional: configured SMTP credentials in `appsettings.json` if real emails should be sent.
 
-## Server starten
-1. Abhängigkeiten wiederherstellen (einmalig): `dotnet restore`
-2. Sicherstellen, dass die Datenbank läuft (z.B. `docker compose up db`)
-3. Server lokal starten: `dotnet run`
-4. Standardmäßig lauscht die Anwendung auf `https://localhost:7082` und `http://localhost:5082`. Die genauen Ports werden beim Start im Terminal ausgegeben.
+## Start the server
+1. Restore dependencies (once): `dotnet restore`
+2. Ensure the database is running (for example `docker compose up db`)
+3. Start the server locally: `dotnet run`
+4. By default the app listens on `https://localhost:7082` and `http://localhost:5082`. The exact ports are printed on startup.
 
 ## Docker
-1. Container-Image bauen: `docker build -t singlesessionserver .`
-2. Container starten:  
+1. Build the container image: `docker build -t singlesessionserver .`
+2. Start the container:  
    ```bash
    docker run --rm -p 8880:8880 --name singlesessionserver singlesessionserver
    ```
-   Die Anwendung ist dann unter `http://localhost:8880` erreichbar.
+   The application will then be available at `http://localhost:8880`.
 
 ## Docker Compose
-1. `.env` prüfen/anpassen (`DB_*` Variablen sowie `ConnectionStrings__Default` für den App-Container).
-2. Services starten: `docker compose up --build`
-3. Anwendung aufrufen: `http://localhost:8880`
-4. Adminer UI erreicht ihr unter `http://localhost:8081` (Server: `db`, User/Pass laut `.env`).
-5. Datenbank erreicht ihr lokal unter `localhost:${DB_PORT}` (Standard `55532`).
-6. Mit `docker compose down` die Container wieder stoppen und aufräumen.
+1. Review/adjust `.env` (`DB_*` variables as well as `ConnectionStrings__Default` for the app container).
+2. Start the services: `docker compose up --build`
+3. Open the application: `http://localhost:8880`
+4. Access the Adminer UI at `http://localhost:8081` (server: `db`, credentials from `.env`).
+5. The database is reachable locally at `localhost:${DB_PORT}` (default `55532`).
+6. Stop and clean up the containers with `docker compose down`.
 
-## Beispielablauf
-1. **Browser/Player registrieren**  
+## Example flow
+1. **Register browser/player**  
    ```bash
    curl -i -X POST http://localhost:5082/device/init
    ```
-   Antwort enthält ein `playerId`-Cookie. Diesen Cookie für die weiteren Schritte verwenden.
+   The response sets the `player_id` and `device_id` cookies. Include both cookies in follow-up requests.
 
-2. **Session erstellen**  
+2. **Create a session**  
    ```bash
-   curl -i -X POST http://localhost:5082/session/login --cookie "player_id=<Wert-aus-Schritt-1>"
+   curl -i -X POST http://localhost:5082/session/login \
+        --cookie "player_id=<value-from-step-1>" \
+        --cookie "device_id=<value-from-step-1>"
    ```
-   Antwort enthält ein `sess_id`-Cookie. Der Server hat jetzt genau eine aktive Session für den Spieler.
+   The response contains a `sess_id` cookie. The server now has exactly one active session for the player.
 
-3. **Status prüfen**  
+3. **Check status**  
    ```bash
-   curl -i http://localhost:5082/whoami --cookie "player_id=<Wert>" --cookie "sess_id=<Wert>"
+   curl -i http://localhost:5082/whoami \
+        --cookie "player_id=<playerId>" \
+        --cookie "device_id=<deviceId>" \
+        --cookie "sess_id=<sessId>"
    ```
-   Es wird die aktuell angemeldete Kombination aus `playerId` und `sessId` zurückgegeben.
+   The currently authenticated combination of `playerId`, `deviceId`, and `sessId` is returned.
 
-## Weitere Hinweise
-- Über `POST /device/transfer/start` kann eine einmalige Magic-Link-Mail erzeugt werden, um eine Session auf einen anderen Browser zu übertragen.
-- `GET /server/info` zeigt Laufzeit-Informationen zum Prozess (z.B. Uptime, Environment).
-- Geräte (`devices`) und Sessions (`sessions`) werden in PostgreSQL persistiert. Initiale Tabellen legt `db/init/01-schema.sql` automatisch an.
+## Additional notes
+- `POST /device/transfer/start` can send a one-time magic-link email to transfer a session to another browser.
+- `GET /server/info` returns runtime information about the process (uptime, environment, etc.).
+- Devices (`devices`) and sessions (`sessions`) are persisted in PostgreSQL. Initial tables are created automatically by `db/init/01-schema.sql`.
+
+## Games
+- Game definitions live in the new `games` table (slug, display name, default game state as JSON).
+- Individual game states per player are stored in `game_states` (linking `player` ↔ `game`).
+- `PUT /api/games/{slug}` lets you create or update games (including the default state).
+- The engine can call `POST /api/games/{slug}/state/load`: if no record exists for the player, the default game state is copied and stored automatically. The response includes the state and related metadata.

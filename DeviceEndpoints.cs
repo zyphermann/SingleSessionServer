@@ -10,11 +10,14 @@ internal static class DeviceEndpoints
     {
         app.MapPost("/device/init", async (HttpRequest req, HttpResponse res, DeviceStore devices) =>
         {
-            req.Cookies.TryGetValue("player_id", out var pid);
-            var actual = await devices.EnsureAsync(pid);
+            req.Cookies.TryGetValue("player_id", out var playerCookie);
+            req.Cookies.TryGetValue("device_id", out var deviceCookie);
+
+            var context = await devices.EnsureAsync(playerCookie, deviceCookie);
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
-            EndpointHelpers.SetCookie(res, "player_id", actual, https, TimeSpan.FromDays(365));
-            return Results.Json(new { playerId = actual });
+            EndpointHelpers.SetCookie(res, "player_id", context.PlayerIdString, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "device_id", context.DeviceIdString, https, TimeSpan.FromDays(365));
+            return Results.Json(new { playerId = context.PlayerIdString, deviceId = context.DeviceIdString });
         });
 
         app.MapPost("/device/transfer/start", async (
@@ -25,10 +28,13 @@ internal static class DeviceEndpoints
             IEmailSender mailer,
             IConfiguration cfg) =>
         {
-            req.Cookies.TryGetValue("player_id", out var pid);
-            var actual = await devices.EnsureAsync(pid);
+            req.Cookies.TryGetValue("player_id", out var playerCookie);
+            req.Cookies.TryGetValue("device_id", out var deviceCookie);
+
+            var context = await devices.EnsureAsync(playerCookie, deviceCookie);
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
-            EndpointHelpers.SetCookie(res, "player_id", actual, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "player_id", context.PlayerIdString, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "device_id", context.DeviceIdString, https, TimeSpan.FromDays(365));
 
             var body = await System.Text.Json.JsonSerializer.DeserializeAsync<EmailRequest>(req.Body);
             if (body is null || string.IsNullOrWhiteSpace(body.Email) || !IsLikelyEmail(body.Email))
@@ -36,11 +42,12 @@ internal static class DeviceEndpoints
 
             body = body with { Email = body.Email.Trim() };
 
-            var emailAttached = await devices.TrySetEmailAsync(actual, body.Email);
-            if (!emailAttached)
-                return Results.Conflict(new { error = "Email already registered" });
+            var updatedContext = await devices.AttachEmailAsync(context, body.Email);
 
-            var token = tokens.CreateToken(actual, TimeSpan.FromMinutes(10)); // one-time, 10 min
+            EndpointHelpers.SetCookie(res, "player_id", updatedContext.PlayerIdString, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "device_id", updatedContext.DeviceIdString, https, TimeSpan.FromDays(365));
+
+            var token = tokens.CreateToken(updatedContext.PlayerIdString, TimeSpan.FromMinutes(10)); // one-time, 10 min
             var baseUrl = cfg.GetValue<string>("App:PublicBaseUrl")?.TrimEnd('/')
                          ?? $"{req.Scheme}://{req.Host.ToUriComponent()}";
             var link = $"{baseUrl}/device/transfer/accept?token={Uri.EscapeDataString(token)}";
@@ -70,12 +77,17 @@ internal static class DeviceEndpoints
             if (playerId is null)
                 return Results.StatusCode(StatusCodes.Status410Gone);
 
-            await devices.TouchAsync(playerId);
+            req.Cookies.TryGetValue("player_id", out var playerCookie);
+            req.Cookies.TryGetValue("device_id", out var deviceCookie);
+
+            var context = await devices.EnsureAsync(playerCookie, deviceCookie);
+            var bound = await devices.BindDeviceAsync(context, playerId);
 
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
-            EndpointHelpers.SetCookie(res, "player_id", playerId, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "player_id", bound.PlayerIdString, https, TimeSpan.FromDays(365));
+            EndpointHelpers.SetCookie(res, "device_id", bound.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessId = await sm.CreateOrReplaceAsync(playerId, TimeSpan.FromHours(8));
+            var sessId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, TimeSpan.FromHours(8));
             EndpointHelpers.SetCookie(res, "sess_id", sessId, https, TimeSpan.FromHours(8));
 
             return Results.Text("Transfer OK. This browser is now the only active session.");

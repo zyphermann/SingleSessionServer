@@ -2,18 +2,48 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "citext";
 
--- Devices table keeps track of unique browser/player identifiers
-CREATE TABLE IF NOT EXISTS devices (
+CREATE TABLE IF NOT EXISTS players (
     player_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email CITEXT UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS games (
+    game_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug CITEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    default_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO games (slug, display_name, default_state)
+VALUES ('ps3', 'Pyramid Spirits 3', '{"coins":5000,"xp":0}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS devices (
+    device_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Sessions table tracks active sessions per player
+CREATE TABLE IF NOT EXISTS game_states (
+    game_state_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    game_id UUID NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+    state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (game_id, player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_states_player ON game_states(player_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
     session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    player_id UUID NOT NULL REFERENCES devices(player_id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ

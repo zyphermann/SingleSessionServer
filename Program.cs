@@ -29,6 +29,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 builder.Services.AddScoped<DeviceStore>();
 builder.Services.AddScoped<SessionManager>();
+builder.Services.AddScoped<GameStore>();
 
 // Choose one email sender:
 // 1) Real SMTP:
@@ -87,6 +88,7 @@ app.Use(async (ctx, next) =>
 
 app.MapDeviceEndpoints();
 app.MapSessionEndpoints();
+app.MapGameEndpoints();
 
 // --- 6) Protected demo endpoint
 app.MapGet("/api/protected/profile", (HttpRequest req) =>
@@ -99,8 +101,9 @@ app.MapGet("/api/protected/profile", (HttpRequest req) =>
 app.MapGet("/whoami", (HttpRequest req) =>
 {
     req.Cookies.TryGetValue("player_id", out var pid);
+    req.Cookies.TryGetValue("device_id", out var did);
     req.Cookies.TryGetValue("sess_id", out var sid);
-    return Results.Json(new { playerId = pid, sessId = sid });
+    return Results.Json(new { playerId = pid, deviceId = did, sessId = sid });
 });
 
 app.MapGet("/server/info", (IHostEnvironment env) =>
