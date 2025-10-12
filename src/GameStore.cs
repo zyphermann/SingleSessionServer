@@ -1,9 +1,6 @@
 using Npgsql;
 using NpgsqlTypes;
-using System;
-using System.Collections.Generic;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 sealed class GameStore
 {
@@ -147,9 +144,9 @@ sealed class GameStore
         await using var reader = await selectState.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
+            var stateId = reader.GetGuid(0);
             var stateJson = reader.GetFieldValue<string>(1);
             var state = JsonSerializer.Deserialize<JsonElement>(stateJson);
-            var stateId = reader.GetGuid(0);
             await reader.CloseAsync();
 
             await using var touch = conn.CreateCommand();
@@ -163,7 +160,7 @@ sealed class GameStore
             touch.Parameters.AddWithValue("id", stateId);
             await touch.ExecuteNonQueryAsync();
 
-            return new GameLoadResult(game, state, Created: false);
+            return new GameLoadResult(game, state, Created: false, GameStateId: stateId);
         }
 
         await reader.CloseAsync();
@@ -175,21 +172,127 @@ sealed class GameStore
             """
             INSERT INTO game_states (game_state_id, game_id, player_id, state)
             VALUES (@id, @gameId, @playerId, @state)
-            RETURNING state;
+            RETURNING game_state_id, state;
             """;
-        insert.Parameters.AddWithValue("id", Guid.NewGuid());
+        var newStateId = Guid.NewGuid();
+        insert.Parameters.AddWithValue("id", newStateId);
         insert.Parameters.AddWithValue("gameId", game.GameId);
         insert.Parameters.AddWithValue("playerId", playerId);
         insert.Parameters.Add("state", NpgsqlDbType.Jsonb).Value = defaultStateJson;
 
-        var inserted = await insert.ExecuteScalarAsync();
-        var insertedJson = inserted is string s ? s : JsonSerializer.Serialize(inserted);
-        var insertedState = JsonSerializer.Deserialize<JsonElement>(insertedJson);
+        await using var insertReader = await insert.ExecuteReaderAsync();
+        if (!await insertReader.ReadAsync())
+            throw new InvalidOperationException("Failed to create default game state.");
 
-        return new GameLoadResult(game, insertedState, Created: true);
+        var createdStateJson = insertReader.GetFieldValue<string>(1);
+        var createdState = JsonSerializer.Deserialize<JsonElement>(createdStateJson);
+        await insertReader.CloseAsync();
+
+        return new GameLoadResult(game, createdState, Created: true, GameStateId: newStateId);
+    }
+
+    public async Task<GameStateUpsertResult> UpsertStateAsync(Guid playerId, GameDefinition game, JsonElement state)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        return await UpsertStateInternalAsync(conn, null, playerId, game, state);
+    }
+
+    public async Task<GameStateUpsertResult?> TryGetStateAsync(Guid playerId, Guid gameStateId)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT gs.game_state_id, g.slug, gs.state
+            FROM game_states gs
+            JOIN games g ON g.game_id = gs.game_id
+            WHERE gs.game_state_id = @id
+              AND gs.player_id = @playerId;
+            """;
+        cmd.Parameters.AddWithValue("id", gameStateId);
+        cmd.Parameters.AddWithValue("playerId", playerId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        var id = reader.GetGuid(0);
+        var slug = reader.GetFieldValue<string>(1);
+        var stateJson = reader.GetFieldValue<string>(2);
+        await reader.CloseAsync();
+
+        return new GameStateUpsertResult(id, slug, JsonSerializer.Deserialize<JsonElement>(stateJson));
+    }
+
+    public async Task<GameStateUpsertResult?> UpdateStateAsync(Guid playerId, Guid gameStateId, JsonElement state)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            """
+            UPDATE game_states gs
+            SET state = @state,
+                updated_at = NOW()
+            FROM games g
+            WHERE gs.game_state_id = @id
+              AND gs.player_id = @playerId
+              AND g.game_id = gs.game_id
+            RETURNING gs.game_state_id, g.slug, gs.state;
+            """;
+        cmd.Parameters.AddWithValue("id", gameStateId);
+        cmd.Parameters.AddWithValue("playerId", playerId);
+        cmd.Parameters.Add("state", NpgsqlDbType.Jsonb).Value = state.GetRawText();
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        var id = reader.GetGuid(0);
+        var slug = reader.GetFieldValue<string>(1);
+        var stateJson = reader.GetFieldValue<string>(2);
+        await reader.CloseAsync();
+
+        return new GameStateUpsertResult(id, slug, JsonSerializer.Deserialize<JsonElement>(stateJson));
+    }
+
+    private static async Task<GameStateUpsertResult> UpsertStateInternalAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction? tx,
+        Guid playerId,
+        GameDefinition game,
+        JsonElement state)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO game_states (game_state_id, game_id, player_id, state)
+            VALUES (@id, @gameId, @playerId, @state)
+            ON CONFLICT (game_id, player_id) DO UPDATE
+            SET state = EXCLUDED.state,
+                updated_at = NOW()
+            RETURNING game_state_id, state;
+            """;
+        var newId = Guid.NewGuid();
+        cmd.Parameters.AddWithValue("id", newId);
+        cmd.Parameters.AddWithValue("gameId", game.GameId);
+        cmd.Parameters.AddWithValue("playerId", playerId);
+        cmd.Parameters.Add("state", NpgsqlDbType.Jsonb).Value = state.GetRawText();
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException("Failed to upsert game state.");
+
+        var gameStateId = reader.GetGuid(0);
+        var stateJson = reader.GetFieldValue<string>(1);
+        await reader.CloseAsync();
+
+        return new GameStateUpsertResult(gameStateId, game.Slug, JsonSerializer.Deserialize<JsonElement>(stateJson));
     }
 }
 
 readonly record struct GameDefinition(Guid GameId, string Slug, string DisplayName, string DefaultStateJson);
 
-sealed record GameLoadResult(GameDefinition Definition, JsonElement State, bool Created);
+sealed record GameLoadResult(GameDefinition Definition, JsonElement State, bool Created, Guid? GameStateId = null);
+
+sealed record GameStateUpsertResult(Guid GameStateId, string Slug, JsonElement State);

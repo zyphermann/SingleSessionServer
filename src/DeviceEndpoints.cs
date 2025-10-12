@@ -18,7 +18,8 @@ internal static class DeviceEndpoints
             EndpointHelpers.SetCookie(res, "player_id", context.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", context.DeviceIdString, https, TimeSpan.FromDays(365));
             return Results.Json(new { playerId = context.PlayerIdString, deviceId = context.DeviceIdString });
-        });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
 
         app.MapPost("/device/transfer/start", async (
             HttpRequest req,
@@ -60,7 +61,8 @@ internal static class DeviceEndpoints
             await mailer.SendAsync(body.Email, "Your Magic Link", html);
 
             return Results.Json(new { ok = true });
-        });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
 
         app.MapGet("/device/transfer/accept", async (
             HttpRequest req,
@@ -91,7 +93,8 @@ internal static class DeviceEndpoints
             EndpointHelpers.SetCookie(res, "sess_id", sessId, https, TimeSpan.FromHours(8));
 
             return Results.Text("Transfer OK. This browser is now the only active session.");
-        });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
     }
 
     private static bool IsLikelyEmail(string email)

@@ -11,10 +11,11 @@ services:
         condition: service_healthy
     ports:
       - "8880:8880"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
     env_file:
       - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=${DB_DATABASE};Username=${DB_USER};Password=${DB_PASSWORD};SSL Mode=Disable;Trust Server Certificate=true
     # volumes:
     #   - ./appsettings.Development.json:/app/appsettings.Development.json:ro
 

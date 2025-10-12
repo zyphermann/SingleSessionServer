@@ -40,62 +40,17 @@ builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 var app = builder.Build();
 
 // --- Middleware: enforce Single Active Session on protected routes ---
-app.Use(async (ctx, next) =>
-{
-    var path = ctx.Request.Path.Value?.ToLowerInvariant();
+app.UseMiddleware<SessionEnforcementMiddleware>();
 
-    // Public endpoints that do not require an active session:
-    var isPublic = path is not null && (
-        path.StartsWith("/device/init") ||
-        path.StartsWith("/device/transfer/") ||
-        path.StartsWith("/whoami") ||
-        path.StartsWith("/health") ||
-        path.StartsWith("/server/info") ||
-        path.StartsWith("/session/login") ||
-        path.StartsWith("/session/logout")  // allow logout without session (idempotent)
-    );
-
-    if (isPublic)
-    {
-        await next();
-        return;
-    }
-
-    var sessId = ctx.Request.Cookies["sess_id"];
-    var playerId = ctx.Request.Cookies["player_id"];
-
-    if (string.IsNullOrWhiteSpace(sessId) || string.IsNullOrWhiteSpace(playerId))
-    {
-        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await ctx.Response.WriteAsync("No session.");
-        return;
-    }
-
-    var sm = ctx.RequestServices.GetRequiredService<SessionManager>();
-    var ok = await sm.ValidateAsync(playerId, sessId, sliding: true);
-
-    if (!ok)
-    {
-        // Session invalid (kicked or expired)
-        EndpointHelpers.DeleteCookie(ctx.Response, "sess_id");
-        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await ctx.Response.WriteAsync("Signed out: login from another device.");
-        return;
-    }
-
-    await next();
-});
-
-app.MapDeviceEndpoints();
-app.MapSessionEndpoints();
-app.MapGameEndpoints();
+app.MapApplicationEndpoints();
 
 // --- 6) Protected demo endpoint
 app.MapGet("/api/protected/profile", (HttpRequest req) =>
 {
     var pid = req.Cookies["player_id"];
     return Results.Json(new { playerId = pid, message = "You are active." });
-});
+})
+.WithMetadata(EndpointAccessMetadata.Private);
 
 // --- diagnostics ---
 app.MapGet("/whoami", (HttpRequest req) =>
@@ -104,7 +59,8 @@ app.MapGet("/whoami", (HttpRequest req) =>
     req.Cookies.TryGetValue("device_id", out var did);
     req.Cookies.TryGetValue("sess_id", out var sid);
     return Results.Json(new { playerId = pid, deviceId = did, sessId = sid });
-});
+})
+.WithMetadata(EndpointAccessMetadata.Public);
 
 app.MapGet("/server/info", (IHostEnvironment env) =>
 {
@@ -118,9 +74,11 @@ app.MapGet("/server/info", (IHostEnvironment env) =>
         machine = Environment.MachineName,
         processId = Environment.ProcessId
     });
-});
+})
+.WithMetadata(EndpointAccessMetadata.Public);
 
-app.MapGet("/health", () => Results.Ok("ok"));
+app.MapGet("/health", () => Results.Ok("ok"))
+   .WithMetadata(EndpointAccessMetadata.Public);
 app.Run();
 
 // --- Utilities & Services ---

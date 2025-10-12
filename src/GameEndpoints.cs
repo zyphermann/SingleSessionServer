@@ -9,7 +9,8 @@ internal static class GameEndpoints
 {
     public static void MapGameEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/games");
+        var group = app.MapGroup("/api/games")
+                       .WithMetadata(EndpointAccessMetadata.Private);
 
         group.MapGet("", async (GameStore store) =>
         {

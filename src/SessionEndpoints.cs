@@ -23,7 +23,8 @@ internal static class SessionEndpoints
             var sessId = await sm.CreateOrReplaceAsync(ctx.PlayerIdString, TimeSpan.FromHours(8));
             EndpointHelpers.SetCookie(res, "sess_id", sessId, https, TimeSpan.FromHours(8));
             return Results.Json(new { ok = true, playerId = ctx.PlayerIdString, sessionId = sessId });
-        });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
 
         app.MapPost("/session/logout", async (HttpRequest req, HttpResponse res, SessionManager sm) =>
         {
@@ -34,6 +35,7 @@ internal static class SessionEndpoints
 
             EndpointHelpers.DeleteCookie(res, "sess_id");
             return Results.Json(new { ok = true });
-        });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
     }
 }
