@@ -10,5 +10,7 @@ internal static class EndpointRegistration
         Ps3GameEndpoints.Map(app);
         WhoAmIEndpoint.Map(app);
         ServerInfo.Map(app);
+        EmailTestEndpoint.Map(app);
+        EmailVerificationEndpoints.Map(app);
     }
 }

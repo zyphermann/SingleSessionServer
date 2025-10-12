@@ -1,10 +1,11 @@
 using Npgsql;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
 if (builder.Environment.IsDevelopment())
 {
-    var envPath = Path.Combine(builder.Environment.ContentRootPath, ".env");
+    var envPath = System.IO.Path.Combine(builder.Environment.ContentRootPath, ".env");
     DotEnvLoader.TryLoad(envPath);
     builder.Configuration.AddEnvironmentVariables();
 }
@@ -26,6 +27,7 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 builder.Services.AddScoped<DeviceStore>();
 builder.Services.AddScoped<SessionManager>();
 builder.Services.AddScoped<GameStore>();
+builder.Services.AddScoped<EmailVerificationService>();
 
 // Choose one email sender:
 // 1) Real SMTP:

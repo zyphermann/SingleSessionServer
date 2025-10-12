@@ -6,9 +6,10 @@ record EmailRequest(string Email);
 
 internal static class DeviceEndpoints
 {
+
     public static void Map(WebApplication app)
     {
-        app.MapPost("/device/init", async (HttpRequest req, HttpResponse res, DeviceStore devices) =>
+        app.MapPost(EndpointPaths.Init, async (HttpRequest req, HttpResponse res, DeviceStore devices) =>
         {
             req.Cookies.TryGetValue("player_id", out var playerCookie);
             req.Cookies.TryGetValue("device_id", out var deviceCookie);
@@ -21,7 +22,7 @@ internal static class DeviceEndpoints
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
-        app.MapPost("/device/transfer/start", async (
+        app.MapPost(EndpointPaths.TransferStart, async (
             HttpRequest req,
             HttpResponse res,
             DeviceStore devices,
@@ -64,7 +65,7 @@ internal static class DeviceEndpoints
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
-        app.MapGet("/device/transfer/accept", async (
+        app.MapGet(EndpointPaths.TransferAccept, async (
             HttpRequest req,
             HttpResponse res,
             DeviceStore devices,

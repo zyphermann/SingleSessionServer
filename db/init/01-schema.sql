@@ -5,9 +5,21 @@ CREATE EXTENSION IF NOT EXISTS "citext";
 CREATE TABLE IF NOT EXISTS players (
     player_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email CITEXT UNIQUE,
+    email_verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+    verification_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+    email CITEXT NOT NULL,
+    token UUID NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_player ON email_verifications(player_id);
 
 CREATE TABLE IF NOT EXISTS games (
     game_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
