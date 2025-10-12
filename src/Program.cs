@@ -2,6 +2,13 @@ using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (builder.Environment.IsDevelopment())
+{
+    var envPath = Path.Combine(builder.Environment.ContentRootPath, ".env");
+    DotEnvLoader.TryLoad(envPath);
+    builder.Configuration.AddEnvironmentVariables();
+}
+
 // Bind settings
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.Configure<AppOptions>(builder.Configuration.GetSection("App"));
@@ -11,6 +18,7 @@ builder.Services.AddMemoryCache(); // demo: replace with IDistributedCache/Redis
 builder.Services.AddSingleton<TokenStore>();
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
+connectionString ??= ConnectionStringHelper.TryBuildFromEnvironment(builder.Configuration);
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("Missing ConnectionStrings:Default configuration for PostgreSQL database.");
 

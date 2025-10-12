@@ -14,6 +14,7 @@ A minimal API that allows exactly one active session per player.
 2. Ensure the database is running (for example `docker compose up db`)
 3. Start the server locally: `dotnet run`
 4. By default the app listens on `https://localhost:7082` and `http://localhost:5082`. The exact ports are printed on startup.
+   The application reads a local `.env` (if present) and composes the PostgreSQL connection string from the `DB_*` entries.
 
 ## Docker
 
@@ -26,7 +27,7 @@ A minimal API that allows exactly one active session per player.
 
 ## Docker Compose
 
-1. Review/adjust `.env` (`DB_*` variables as well as `ConnectionStrings__Default` for the app container).
+1. Review/adjust `.env` (`DB_*` variables). The application derives its connection string from these values at runtime.
 2. Start the services: `docker compose up --build`
 3. Open the application: `http://localhost:8880`
 4. Access the Adminer UI at `http://localhost:8081` (server: `db`, credentials from `.env`).
