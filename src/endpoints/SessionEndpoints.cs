@@ -4,7 +4,7 @@ using System;
 
 internal static class SessionEndpoints
 {
-    public static void MapSessionEndpoints(this WebApplication app)
+    public static void Map(WebApplication app)
     {
         app.MapPost("/session/login", async (HttpRequest req, HttpResponse res, DeviceStore devices, SessionManager sm) =>
         {
@@ -20,20 +20,20 @@ internal static class SessionEndpoints
             EndpointHelpers.SetCookie(res, "player_id", ctx.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", ctx.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessId = await sm.CreateOrReplaceAsync(ctx.PlayerIdString, TimeSpan.FromHours(8));
-            EndpointHelpers.SetCookie(res, "sess_id", sessId, https, TimeSpan.FromHours(8));
-            return Results.Json(new { ok = true, playerId = ctx.PlayerIdString, sessionId = sessId });
+            var sessionId = await sm.CreateOrReplaceAsync(ctx.PlayerIdString, TimeSpan.FromHours(8));
+            EndpointHelpers.SetCookie(res, "session_id", sessionId, https, TimeSpan.FromHours(8));
+            return Results.Json(new { ok = true, playerId = ctx.PlayerIdString, sessionId = sessionId });
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
         app.MapPost("/session/logout", async (HttpRequest req, HttpResponse res, SessionManager sm) =>
         {
-            var sessId = req.Cookies["sess_id"];
+            var sessionId = req.Cookies["session_id"];
             var pid = req.Cookies["player_id"];
-            if (!string.IsNullOrWhiteSpace(sessId) && !string.IsNullOrWhiteSpace(pid))
-                await sm.RevokeIfActiveAsync(pid, sessId);
+            if (!string.IsNullOrWhiteSpace(sessionId) && !string.IsNullOrWhiteSpace(pid))
+                await sm.RevokeIfActiveAsync(pid, sessionId);
 
-            EndpointHelpers.DeleteCookie(res, "sess_id");
+            EndpointHelpers.DeleteCookie(res, "session_id");
             return Results.Json(new { ok = true });
         })
         .WithMetadata(EndpointAccessMetadata.Public);

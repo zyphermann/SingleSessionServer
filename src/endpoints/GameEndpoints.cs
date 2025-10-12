@@ -1,13 +1,14 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using System;
-using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
+
+sealed record GameDefinitionRequest(string? DisplayName, JsonElement? DefaultState);
+
+sealed record GameDefinitionResponse(Guid Id, string Slug, string DisplayName, JsonElement DefaultState);
+
+sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement State, bool Created);
 
 internal static class GameEndpoints
 {
-    public static void MapGameEndpoints(this WebApplication app)
+    public static void Map(WebApplication app)
     {
         var group = app.MapGroup("/api/games")
                        .WithMetadata(EndpointAccessMetadata.Private);
@@ -78,8 +79,3 @@ internal static class GameEndpoints
     }
 }
 
-sealed record GameDefinitionRequest(string? DisplayName, JsonElement? DefaultState);
-
-sealed record GameDefinitionResponse(Guid Id, string Slug, string DisplayName, JsonElement DefaultState);
-
-sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement State, bool Created);

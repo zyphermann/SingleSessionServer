@@ -8,7 +8,7 @@ internal static class Ps3GameEndpoints
 {
     private const string GameSlug = "ps3";
 
-    public static void MapPs3GameEndpoints(this WebApplication app)
+    public static void Map(WebApplication app)
     {
         var group = app.MapGroup($"/api/games/{GameSlug}")
                        .WithMetadata(EndpointAccessMetadata.Private);

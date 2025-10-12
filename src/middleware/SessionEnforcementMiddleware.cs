@@ -20,20 +20,20 @@ sealed class SessionEnforcementMiddleware
             return;
         }
 
-        var sessId = context.Request.Cookies["sess_id"];
+        var sessionId = context.Request.Cookies["session_id"];
         var playerId = context.Request.Cookies["player_id"];
 
-        if (string.IsNullOrWhiteSpace(sessId) || string.IsNullOrWhiteSpace(playerId))
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(playerId))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("No session.");
             return;
         }
 
-        var ok = await sessionManager.ValidateAsync(playerId, sessId, sliding: true);
+        var ok = await sessionManager.ValidateAsync(playerId, sessionId, sliding: true);
         if (!ok)
         {
-            EndpointHelpers.DeleteCookie(context.Response, "sess_id");
+            EndpointHelpers.DeleteCookie(context.Response, "session_id");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Signed out: login from another device.");
             return;

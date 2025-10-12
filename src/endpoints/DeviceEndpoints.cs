@@ -1,12 +1,12 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using System;
 using System.Net;
+
+
+// --- Utilities & Services ---
+record EmailRequest(string Email);
 
 internal static class DeviceEndpoints
 {
-    public static void MapDeviceEndpoints(this WebApplication app)
+    public static void Map(WebApplication app)
     {
         app.MapPost("/device/init", async (HttpRequest req, HttpResponse res, DeviceStore devices) =>
         {
@@ -89,8 +89,8 @@ internal static class DeviceEndpoints
             EndpointHelpers.SetCookie(res, "player_id", bound.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", bound.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, TimeSpan.FromHours(8));
-            EndpointHelpers.SetCookie(res, "sess_id", sessId, https, TimeSpan.FromHours(8));
+            var sessionId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, TimeSpan.FromHours(8));
+            EndpointHelpers.SetCookie(res, "session_id", sessionId, https, TimeSpan.FromHours(8));
 
             return Results.Text("Transfer OK. This browser is now the only active session.");
         })
