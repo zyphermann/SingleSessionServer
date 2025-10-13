@@ -1,14 +1,13 @@
 using Microsoft.AspNetCore.Http;
-using System;
 using System.Threading.Tasks;
 
-sealed class SessionEnforcementMiddleware
+sealed class SessionEnforcementMiddleware : IMiddleware
 {
-    private readonly RequestDelegate _next;
+    private readonly SessionManager _sessionManager;
 
-    public SessionEnforcementMiddleware(RequestDelegate next) => _next = next;
+    public SessionEnforcementMiddleware(SessionManager sessionManager) => _sessionManager = sessionManager;
 
-    public async Task InvokeAsync(HttpContext context, SessionManager sessionManager)
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
         var endpoint = context.GetEndpoint();
         var metadata = endpoint?.Metadata.GetMetadata<EndpointAccessMetadata>();
@@ -16,7 +15,7 @@ sealed class SessionEnforcementMiddleware
 
         if (!requiresSession)
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
@@ -30,7 +29,7 @@ sealed class SessionEnforcementMiddleware
             return;
         }
 
-        var ok = await sessionManager.ValidateAsync(playerId, sessionId, sliding: true);
+        var ok = await _sessionManager.ValidateAsync(playerId, sessionId, sliding: true);
         if (!ok)
         {
             EndpointHelpers.DeleteCookie(context.Response, "session_id");
@@ -39,6 +38,6 @@ sealed class SessionEnforcementMiddleware
             return;
         }
 
-        await _next(context);
+        await next(context);
     }
 }

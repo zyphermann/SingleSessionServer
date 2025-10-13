@@ -5,6 +5,7 @@ using Npgsql;
 sealed class SessionManager
 {
     private static readonly TimeSpan DefaultSlidingTtl = TimeSpan.FromHours(8);
+
     private readonly NpgsqlDataSource _dataSource;
 
     public SessionManager(NpgsqlDataSource dataSource) => _dataSource = dataSource;

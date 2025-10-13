@@ -1,6 +1,10 @@
 using Npgsql;
-using System;
-using System.Threading.Tasks;
+
+sealed record DeviceContext(Guid PlayerId, Guid DeviceId)
+{
+    public string PlayerIdString => PlayerId.ToString();
+    public string DeviceIdString => DeviceId.ToString();
+}
 
 sealed class DeviceStore
 {
@@ -370,8 +374,4 @@ sealed class DeviceStore
     }
 }
 
-sealed record DeviceContext(Guid PlayerId, Guid DeviceId)
-{
-    public string PlayerIdString => PlayerId.ToString();
-    public string DeviceIdString => DeviceId.ToString();
-}
+

@@ -1,6 +1,5 @@
 using System.Net;
 
-
 // --- Utilities & Services ---
 record EmailRequest(string Email);
 

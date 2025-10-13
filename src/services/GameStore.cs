@@ -2,6 +2,12 @@ using Npgsql;
 using NpgsqlTypes;
 using System.Text.Json;
 
+readonly record struct GameDefinition(Guid GameId, string Slug, string DisplayName, string DefaultStateJson);
+
+sealed record GameLoadResult(GameDefinition Definition, JsonElement State, bool Created, Guid? GameStateId = null);
+
+sealed record GameStateUpsertResult(Guid GameStateId, string Slug, JsonElement State);
+
 sealed class GameStore
 {
     private readonly NpgsqlDataSource _dataSource;
@@ -291,8 +297,3 @@ sealed class GameStore
     }
 }
 
-readonly record struct GameDefinition(Guid GameId, string Slug, string DisplayName, string DefaultStateJson);
-
-sealed record GameLoadResult(GameDefinition Definition, JsonElement State, bool Created, Guid? GameStateId = null);
-
-sealed record GameStateUpsertResult(Guid GameStateId, string Slug, JsonElement State);

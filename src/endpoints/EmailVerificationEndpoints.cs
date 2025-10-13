@@ -1,9 +1,4 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using System;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 internal static class EmailVerificationEndpoints
 {

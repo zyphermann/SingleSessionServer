@@ -1,6 +1,12 @@
 using Npgsql;
-using System;
-using System.Threading.Tasks;
+
+enum EmailVerificationResult
+{
+    Success,
+    NotFound,
+    Expired,
+    EmailAlreadyTaken
+}
 
 sealed class EmailVerificationService
 {
@@ -121,10 +127,3 @@ sealed class EmailVerificationService
 
 readonly record struct EmailVerificationPending(Guid Token, string Email, DateTimeOffset ExpiresAt);
 
-enum EmailVerificationResult
-{
-    Success,
-    NotFound,
-    Expired,
-    EmailAlreadyTaken
-}

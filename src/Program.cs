@@ -1,5 +1,4 @@
 using Npgsql;
-using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +27,7 @@ builder.Services.AddScoped<DeviceStore>();
 builder.Services.AddScoped<SessionManager>();
 builder.Services.AddScoped<GameStore>();
 builder.Services.AddScoped<EmailVerificationService>();
+builder.Services.AddScoped<SessionEnforcementMiddleware>();
 
 // Choose one email sender:
 // 1) Real SMTP:
