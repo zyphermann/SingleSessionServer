@@ -1,6 +1,6 @@
 using Npgsql;
 
-sealed record DeviceContext(Guid PlayerId, Guid DeviceId)
+sealed record DeviceContext(Guid PlayerId, Guid DeviceId, string PlayerShortId)
 {
     public string PlayerIdString => PlayerId.ToString();
     public string DeviceIdString => DeviceId.ToString();
@@ -61,6 +61,19 @@ sealed class DeviceStore
         }
 
         return null;
+    }
+
+    public async Task<Guid?> TryGetPlayerIdByShortIdAsync(string? shortId)
+    {
+        if (string.IsNullOrWhiteSpace(shortId))
+            return null;
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT player_id FROM players WHERE short_id = @shortId;";
+        cmd.Parameters.AddWithValue("shortId", shortId);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is Guid playerId ? playerId : null;
     }
 
     public async Task<DeviceContext> AttachEmailAsync(DeviceContext context, string email)
@@ -154,7 +167,8 @@ sealed class DeviceStore
                 await bumpOwner.ExecuteNonQueryAsync();
             }
 
-            finalContext = context with { PlayerId = existingOwner.Value };
+            var targetShortId = await GetPlayerShortIdAsync(conn, existingOwner.Value, tx);
+            finalContext = context with { PlayerId = existingOwner.Value, PlayerShortId = targetShortId };
         }
 
         await tx.CommitAsync();
@@ -219,9 +233,10 @@ sealed class DeviceStore
             await bumpOwner.ExecuteNonQueryAsync();
         }
 
+        var targetShortId = await GetPlayerShortIdAsync(conn, targetPlayerId, tx);
         await tx.CommitAsync();
 
-        var updated = context with { PlayerId = targetPlayerId };
+        var updated = context with { PlayerId = targetPlayerId, PlayerShortId = targetShortId };
         await TouchInternalAsync(conn, updated);
         return updated;
     }
@@ -245,12 +260,22 @@ sealed class DeviceStore
     private static async Task<DeviceContext?> TryLoadByDeviceAsync(NpgsqlConnection conn, Guid deviceId)
     {
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT player_id FROM devices WHERE device_id = @deviceId;";
+        cmd.CommandText =
+            """
+            SELECT p.player_id, p.short_id
+            FROM devices d
+            JOIN players p ON p.player_id = d.player_id
+            WHERE d.device_id = @deviceId;
+            """;
         cmd.Parameters.AddWithValue("deviceId", deviceId);
-        var result = await cmd.ExecuteScalarAsync();
-        if (result is Guid playerId)
-            return new DeviceContext(playerId, deviceId);
-        return null;
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        var playerId = reader.GetGuid(0);
+        var shortId = reader.GetString(1);
+        return new DeviceContext(playerId, deviceId, shortId);
     }
 
     private static async Task<DeviceContext?> TryLoadByPlayerAsync(NpgsqlConnection conn, Guid playerId)
@@ -258,17 +283,22 @@ sealed class DeviceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
             """
-            SELECT device_id
-            FROM devices
-            WHERE player_id = @playerId
-            ORDER BY last_seen_at DESC
+            SELECT d.device_id, p.short_id
+            FROM devices d
+            JOIN players p ON p.player_id = d.player_id
+            WHERE d.player_id = @playerId
+            ORDER BY d.last_seen_at DESC
             LIMIT 1;
             """;
         cmd.Parameters.AddWithValue("playerId", playerId);
-        var result = await cmd.ExecuteScalarAsync();
-        if (result is Guid deviceId)
-            return new DeviceContext(playerId, deviceId);
-        return null;
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        var deviceId = reader.GetGuid(0);
+        var shortId = reader.GetString(1);
+        return new DeviceContext(playerId, deviceId, shortId);
     }
 
     private static async Task<DeviceContext?> TryCreateDeviceForPlayerAsync(NpgsqlConnection conn, Guid playerId)
@@ -295,7 +325,8 @@ sealed class DeviceStore
             await insert.ExecuteNonQueryAsync();
         }
 
-        var ctx = new DeviceContext(playerId, deviceId);
+        var shortId = await GetPlayerShortIdAsync(conn, playerId);
+        var ctx = new DeviceContext(playerId, deviceId, shortId);
         await TouchInternalAsync(conn, ctx);
         return ctx;
     }
@@ -305,16 +336,18 @@ sealed class DeviceStore
         await using var tx = await conn.BeginTransactionAsync();
         var playerId = Guid.NewGuid();
         var deviceId = Guid.NewGuid();
+        var shortId = await GenerateUniqueShortIdAsync(conn, tx);
 
         await using (var insertPlayer = conn.CreateCommand())
         {
             insertPlayer.Transaction = tx;
             insertPlayer.CommandText =
                 """
-                INSERT INTO players (player_id, email, created_at, updated_at)
-                VALUES (@playerId, NULL, NOW(), NOW());
+                INSERT INTO players (player_id, email, short_id, created_at, updated_at)
+                VALUES (@playerId, NULL, @shortId, NOW(), NOW());
                 """;
             insertPlayer.Parameters.AddWithValue("playerId", playerId);
+            insertPlayer.Parameters.AddWithValue("shortId", shortId);
             await insertPlayer.ExecuteNonQueryAsync();
         }
 
@@ -333,7 +366,7 @@ sealed class DeviceStore
 
         await tx.CommitAsync();
 
-        return new DeviceContext(playerId, deviceId);
+        return new DeviceContext(playerId, deviceId, shortId);
     }
 
     private static async Task TouchInternalAsync(NpgsqlConnection conn, DeviceContext context)
@@ -363,6 +396,33 @@ sealed class DeviceStore
         }
     }
 
+    private static async Task<string> GenerateUniqueShortIdAsync(NpgsqlConnection conn, NpgsqlTransaction tx, int length = 8)
+    {
+        while (true)
+        {
+            var candidate = NanoId.Generate(length);
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "SELECT 1 FROM players WHERE short_id = @shortId;";
+            cmd.Parameters.AddWithValue("shortId", candidate);
+            var exists = await cmd.ExecuteScalarAsync();
+            if (exists is null)
+                return candidate;
+        }
+    }
+
+    private static async Task<string> GetPlayerShortIdAsync(NpgsqlConnection conn, Guid playerId, NpgsqlTransaction? tx = null)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT short_id FROM players WHERE player_id = @playerId;";
+        cmd.Parameters.AddWithValue("playerId", playerId);
+        var result = await cmd.ExecuteScalarAsync();
+        if (result is string shortId)
+            return shortId;
+        throw new InvalidOperationException("Player short id not found.");
+    }
+
     private static async Task<bool> EnsurePlayerExistsAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid playerId)
     {
         await using var cmd = conn.CreateCommand();
@@ -373,5 +433,3 @@ sealed class DeviceStore
         return exists is not null;
     }
 }
-
-

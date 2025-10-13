@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS "citext";
 CREATE TABLE IF NOT EXISTS players (
     player_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email CITEXT UNIQUE,
+    short_id TEXT NOT NULL UNIQUE,
     email_verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

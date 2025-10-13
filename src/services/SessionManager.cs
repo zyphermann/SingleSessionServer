@@ -1,6 +1,7 @@
 
 // Single Active Session manager (player -> single sess)
 using Npgsql;
+using System.Threading.Tasks;
 
 sealed class SessionManager
 {
@@ -11,7 +12,7 @@ sealed class SessionManager
     public SessionManager(NpgsqlDataSource dataSource) => _dataSource = dataSource;
 
     // Create a new session (replaces any previous one for the player)
-    public async System.Threading.Tasks.Task<string> CreateOrReplaceAsync(string playerId, TimeSpan ttl)
+    public async Task<string> CreateOrReplaceAsync(string playerId, TimeSpan ttl)
     {
         if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
             throw new ArgumentException("Invalid player id.", nameof(playerId));
@@ -53,7 +54,7 @@ sealed class SessionManager
     }
 
     // Validate that sessId is the active one for this player
-    public async System.Threading.Tasks.Task<bool> ValidateAsync(string playerId, string sessId, bool sliding)
+    public async Task<bool> ValidateAsync(string playerId, string sessId, bool sliding)
     {
         if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
             return false;
@@ -104,7 +105,7 @@ sealed class SessionManager
     }
 
     // If this sessId is active for the player, revoke it
-    public async System.Threading.Tasks.Task RevokeIfActiveAsync(string playerId, string sessId)
+    public async Task RevokeIfActiveAsync(string playerId, string sessId)
     {
         if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
             return;
@@ -126,7 +127,7 @@ sealed class SessionManager
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private static async System.Threading.Tasks.Task MarkRevokedAsync(NpgsqlConnection conn, Guid sessionId)
+    private static async Task MarkRevokedAsync(NpgsqlConnection conn, Guid sessionId)
     {
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =

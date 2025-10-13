@@ -15,9 +15,11 @@ internal static class DeviceEndpoints
 
             var context = await devices.EnsureAsync(playerCookie, deviceCookie);
             var https = string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase);
+
             EndpointHelpers.SetCookie(res, "player_id", context.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", context.DeviceIdString, https, TimeSpan.FromDays(365));
-            return Results.Json(new { playerId = context.PlayerIdString, deviceId = context.DeviceIdString });
+
+            return Results.Json(new { playerId = context.PlayerIdString, playerShortId = context.PlayerShortId, deviceId = context.DeviceIdString });
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
