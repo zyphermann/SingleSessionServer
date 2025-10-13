@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using System;
 
 internal static class WhoAmIEndpoint
 {
@@ -17,6 +18,22 @@ internal static class WhoAmIEndpoint
                 playerShortId = ctx?.PlayerShortId,
                 deviceId = did,
                 session_id = sid
+            });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
+
+        app.MapGet("/whoami/{sessionId:guid}", async (Guid sessionId, SessionManager sm) =>
+        {
+            var lookup = await sm.TryGetAsync(sessionId, extend: true);
+            if (lookup is null)
+                return Results.NotFound(new { error = "Session not found or expired." });
+
+            return Results.Json(new
+            {
+                sessionId = sessionId.ToString(),
+                playerId = lookup.Value.PlayerId.ToString(),
+                deviceId = lookup.Value.DeviceId.ToString(),
+                playerShortId = lookup.Value.PlayerShortId
             });
         })
         .WithMetadata(EndpointAccessMetadata.Public);

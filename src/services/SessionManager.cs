@@ -1,6 +1,7 @@
 
 // Single Active Session manager (player -> single sess)
 using Npgsql;
+using System;
 using System.Threading.Tasks;
 
 sealed class SessionManager
@@ -12,10 +13,12 @@ sealed class SessionManager
     public SessionManager(NpgsqlDataSource dataSource) => _dataSource = dataSource;
 
     // Create a new session (replaces any previous one for the player)
-    public async Task<string> CreateOrReplaceAsync(string playerId, TimeSpan ttl)
+    public async Task<string> CreateOrReplaceAsync(string playerId, string deviceId, TimeSpan ttl)
     {
         if (!Guid.TryParse(playerId, out var playerGuid) || playerGuid == Guid.Empty)
             throw new ArgumentException("Invalid player id.", nameof(playerId));
+        if (!Guid.TryParse(deviceId, out var deviceGuid) || deviceGuid == Guid.Empty)
+            throw new ArgumentException("Invalid device id.", nameof(deviceId));
 
         var sessionGuid = Guid.NewGuid();
         await using var conn = await _dataSource.OpenConnectionAsync();
@@ -40,11 +43,12 @@ sealed class SessionManager
             insertCmd.Transaction = tx;
             insertCmd.CommandText =
                 """
-                INSERT INTO sessions (session_id, player_id, expires_at)
-                VALUES (@sessionId, @playerId, @expiresAt);
+                INSERT INTO sessions (session_id, player_id, device_id, expires_at)
+                VALUES (@sessionId, @playerId, @deviceId, @expiresAt);
                 """;
             insertCmd.Parameters.AddWithValue("sessionId", sessionGuid);
             insertCmd.Parameters.AddWithValue("playerId", playerGuid);
+            insertCmd.Parameters.AddWithValue("deviceId", deviceGuid);
             insertCmd.Parameters.AddWithValue("expiresAt", DateTime.UtcNow.Add(ttl));
             await insertCmd.ExecuteNonQueryAsync();
         }
@@ -127,6 +131,63 @@ sealed class SessionManager
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<SessionLookupResult?> TryGetAsync(Guid sessionId, bool extend = true)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        Guid playerId;
+        Guid deviceId;
+        string shortId;
+        DateTime? expiresAt;
+        DateTime? revokedAt;
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                SELECT s.player_id, s.device_id, p.short_id, s.expires_at, s.revoked_at
+                FROM sessions s
+                JOIN players p ON p.player_id = s.player_id
+                WHERE s.session_id = @sessionId;
+                """;
+            cmd.Parameters.AddWithValue("sessionId", sessionId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return null;
+
+            playerId = reader.GetGuid(0);
+            deviceId = reader.GetGuid(1);
+            shortId = reader.GetString(2);
+            expiresAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTime>(3);
+            revokedAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTime>(4);
+        }
+
+        if (revokedAt is not null)
+            return null;
+
+        if (expiresAt is DateTime exp && exp < DateTime.UtcNow)
+        {
+            await MarkRevokedAsync(conn, sessionId);
+            return null;
+        }
+
+        if (extend)
+        {
+            await using var update = conn.CreateCommand();
+            update.CommandText =
+                """
+                UPDATE sessions
+                SET expires_at = @expiresAt
+                WHERE session_id = @sessionId;
+                """;
+            update.Parameters.AddWithValue("expiresAt", DateTime.UtcNow.Add(DefaultSlidingTtl));
+            update.Parameters.AddWithValue("sessionId", sessionId);
+            await update.ExecuteNonQueryAsync();
+        }
+
+        return new SessionLookupResult(playerId, deviceId, shortId);
+    }
+
     private static async Task MarkRevokedAsync(NpgsqlConnection conn, Guid sessionId)
     {
         await using var cmd = conn.CreateCommand();
@@ -141,3 +202,5 @@ sealed class SessionManager
         await cmd.ExecuteNonQueryAsync();
     }
 }
+
+readonly record struct SessionLookupResult(Guid PlayerId, Guid DeviceId, string PlayerShortId);

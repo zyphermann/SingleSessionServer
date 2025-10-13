@@ -20,7 +20,7 @@ internal static class SessionEndpoints
             EndpointHelpers.SetCookie(res, "player_id", ctx.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", ctx.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessionId = await sm.CreateOrReplaceAsync(ctx.PlayerIdString, TimeSpan.FromHours(8));
+            var sessionId = await sm.CreateOrReplaceAsync(ctx.PlayerIdString, ctx.DeviceIdString, TimeSpan.FromHours(8));
             EndpointHelpers.SetCookie(res, "session_id", sessionId, https, TimeSpan.FromHours(8));
             return Results.Json(new { ok = true, playerId = ctx.PlayerIdString, playerShortId = ctx.PlayerShortId, sessionId });
         })
@@ -48,7 +48,7 @@ internal static class SessionEndpoints
             EndpointHelpers.SetCookie(res, "player_id", bound.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", bound.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessionId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, TimeSpan.FromHours(8));
+            var sessionId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, bound.DeviceIdString, TimeSpan.FromHours(8));
             EndpointHelpers.SetCookie(res, "session_id", sessionId, https, TimeSpan.FromHours(8));
 
             return Results.Json(new { ok = true, playerId = bound.PlayerIdString, playerShortId = bound.PlayerShortId, sessionId });

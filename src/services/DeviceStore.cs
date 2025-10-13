@@ -145,7 +145,7 @@ sealed class DeviceStore
             await using (var deleteSessions = conn.CreateCommand())
             {
                 deleteSessions.Transaction = tx;
-                deleteSessions.CommandText = "DELETE FROM sessions WHERE player_id = @playerId;";
+                deleteSessions.CommandText = "DELETE FROM sessions WHERE player_id = @playerId OR device_id = @deviceId;";
                 deleteSessions.Parameters.AddWithValue("playerId", currentPlayerId);
                 await deleteSessions.ExecuteNonQueryAsync();
             }
@@ -211,8 +211,9 @@ sealed class DeviceStore
         await using (var deleteSessions = conn.CreateCommand())
         {
             deleteSessions.Transaction = tx;
-            deleteSessions.CommandText = "DELETE FROM sessions WHERE player_id = @playerId;";
+            deleteSessions.CommandText = "DELETE FROM sessions WHERE player_id = @playerId OR device_id = @deviceId;";
             deleteSessions.Parameters.AddWithValue("playerId", context.PlayerId);
+            deleteSessions.Parameters.AddWithValue("deviceId", context.DeviceId);
             await deleteSessions.ExecuteNonQueryAsync();
         }
 

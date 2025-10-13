@@ -69,6 +69,7 @@ A minimal API that allows exactly one active session per player.
 
 - `POST /device/transfer/start` can send a one-time magic-link email to transfer a session to another browser.
 - `GET /server/info` returns runtime information about the process (uptime, environment, etc.).
+- `GET /whoami/{sessionId}` returns player information for a session id (helpful for Godot/mobile clients storing only the session token).
 - `POST /session/login/short` lets a device join an existing player account by providing the short id (after calling `/device/init`).
 - Devices (`devices`) and sessions (`sessions`) are persisted in PostgreSQL. Initial tables are created automatically by `db/init/01-schema.sql`.
 - Authenticated players can initiate email verification via `POST /email/verification/start`; the link in the email targets `GET /email/verification/confirm?token=…`. Only confirmed addresses are persisted on player records.

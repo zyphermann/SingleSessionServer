@@ -91,7 +91,7 @@ internal static class DeviceEndpoints
             EndpointHelpers.SetCookie(res, "player_id", bound.PlayerIdString, https, TimeSpan.FromDays(365));
             EndpointHelpers.SetCookie(res, "device_id", bound.DeviceIdString, https, TimeSpan.FromDays(365));
 
-            var sessionId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, TimeSpan.FromHours(8));
+            var sessionId = await sm.CreateOrReplaceAsync(bound.PlayerIdString, bound.DeviceIdString, TimeSpan.FromHours(8));
             EndpointHelpers.SetCookie(res, "session_id", sessionId, https, TimeSpan.FromHours(8));
 
             return Results.Text("Transfer OK. This browser is now the only active session.");

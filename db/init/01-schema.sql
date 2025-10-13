@@ -57,6 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_game_states_player ON game_states(player_id);
 CREATE TABLE IF NOT EXISTS sessions (
     session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ
