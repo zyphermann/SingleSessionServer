@@ -66,7 +66,41 @@ internal static class SessionEndpoints
             return Results.Json(new { ok = true });
         })
         .WithMetadata(EndpointAccessMetadata.Public);
+
+        app.MapPost("/session/login/direct", async (DirectLoginRequest request, DeviceStore devices, SessionManager sm) =>
+        {
+            if (request is null)
+                return Results.BadRequest(new { error = "Missing request body." });
+
+            Guid? targetPlayer = null;
+
+            if (!string.IsNullOrWhiteSpace(request.PlayerId) && Guid.TryParse(request.PlayerId, out var parsed))
+                targetPlayer = parsed;
+            else if (!string.IsNullOrWhiteSpace(request.PlayerShortId))
+                targetPlayer = await devices.TryGetPlayerIdByShortIdAsync(request.PlayerShortId.Trim());
+
+            if (targetPlayer is null)
+                return Results.BadRequest(new { error = "Unknown player." });
+
+            var context = await devices.EnsureAsync(targetPlayer.Value.ToString(), request.DeviceId);
+            if (context.PlayerId != targetPlayer.Value)
+                context = await devices.BindDeviceAsync(context, targetPlayer.Value.ToString());
+
+            var sessionId = await sm.CreateOrReplaceAsync(context.PlayerIdString, context.DeviceIdString, TimeSpan.FromHours(8));
+
+            return Results.Json(new
+            {
+                ok = true,
+                playerId = context.PlayerIdString,
+                playerShortId = context.PlayerShortId,
+                deviceId = context.DeviceIdString,
+                sessionId
+            });
+        })
+        .WithMetadata(EndpointAccessMetadata.Public);
     }
 }
 
 sealed record ShortCodeLoginRequest(string ShortId);
+
+sealed record DirectLoginRequest(string? PlayerId, string? PlayerShortId, string? DeviceId);
