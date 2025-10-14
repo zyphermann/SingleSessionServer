@@ -1,10 +1,16 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 sealed record GameDefinitionRequest(string? DisplayName, JsonElement? DefaultState);
 
 sealed record GameDefinitionResponse(Guid Id, string Slug, string DisplayName, JsonElement DefaultState);
 
 sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement State, bool Created);
+
+sealed record GameStateLoadRequest(
+    string? PlayerId,
+    string? PlayerShortId,
+    [property: JsonPropertyName("player_id_short")] string? PlayerIdShort);
 
 internal static class GameEndpoints
 {
@@ -58,12 +64,34 @@ internal static class GameEndpoints
             return Results.Json(new GameDefinitionResponse(definition.GameId, definition.Slug, definition.DisplayName, json.Clone()));
         });
 
-        group.MapPost("/{slug}/state/load", async (HttpRequest req, string slug, GameStore store) =>
+        group.MapPost("/{slug}/state/load", async (HttpRequest req, GameStateLoadRequest? loadRequest, string slug, GameStore store, DeviceStore devices) =>
         {
-            if (!req.Cookies.TryGetValue("player_id", out var playerCookie) || !Guid.TryParse(playerCookie, out var playerId))
-                return Results.BadRequest(new { error = "Missing or invalid player_id cookie. Call /device/init first." });
+            Guid? playerId = null;
 
-            var gameState = await store.LoadAsync(playerId, slug);
+            if (req.Cookies.TryGetValue("player_id", out var playerCookie) && Guid.TryParse(playerCookie, out var cookiePlayerId))
+                playerId = cookiePlayerId;
+
+            if (playerId is null && loadRequest is not null && !string.IsNullOrWhiteSpace(loadRequest.PlayerId))
+            {
+                var raw = loadRequest.PlayerId.Trim();
+                if (Guid.TryParse(raw, out var parsed))
+                    playerId = parsed;
+            }
+
+            if (playerId is null && loadRequest is not null)
+            {
+                var shortId = loadRequest.PlayerShortId;
+                if (string.IsNullOrWhiteSpace(shortId))
+                    shortId = loadRequest.PlayerIdShort;
+
+                if (!string.IsNullOrWhiteSpace(shortId))
+                    playerId = await devices.TryGetPlayerIdByShortIdAsync(shortId.Trim());
+            }
+
+            if (playerId is null)
+                return Results.BadRequest(new { error = "Unknown player. Provide player_id cookie or playerId/player_id_short in body." });
+
+            var gameState = await store.LoadAsync(playerId.Value, slug);
             if (gameState is null)
                 return Results.NotFound(new { error = "Game not found." });
 
@@ -78,4 +106,3 @@ internal static class GameEndpoints
         });
     }
 }
-

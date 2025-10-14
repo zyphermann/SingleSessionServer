@@ -35,6 +35,7 @@ A minimal API that allows exactly one active session per player.
 5. Access the Adminer UI at `http://localhost:8081` (server: `db`, credentials from `.env`).
 6. The database is reachable locally at `localhost:${DB_PORT}` (default `55532`).
 7. Stop and clean up the containers with `docker compose down`.
+8. Start and run in background: `docker compose up --build -d`
 
 ## Example flow
 
