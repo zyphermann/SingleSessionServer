@@ -8,11 +8,19 @@ internal static class SessionEndpoints
     {
         app.MapPost("/session/login", async (HttpRequest req, HttpResponse res, DeviceStore devices, SessionManager sm) =>
         {
-            if (!req.Cookies.TryGetValue("player_id", out var playerCookie) || string.IsNullOrWhiteSpace(playerCookie))
+            RequestIdentity identity;
+            try
+            {
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices, requirePlayerId: true);
+            }
+            catch (RequestIdentityException)
+            {
                 return Results.BadRequest(new { error = "No player_id. Call /device/init first." });
+            }
 
-            req.Cookies.TryGetValue("device_id", out var deviceCookie);
-            var ctx = await devices.TryGetAsync(playerCookie, deviceCookie);
+            var playerIdString = identity.PlayerId!.Value.ToString();
+
+            var ctx = await devices.TryGetAsync(playerIdString, identity.DeviceId);
             if (ctx is null)
                 return Results.BadRequest(new { error = "Unknown device. Call /device/init first." });
 
@@ -28,16 +36,21 @@ internal static class SessionEndpoints
 
         app.MapPost("/session/login/short", async (HttpRequest req, HttpResponse res, DeviceStore devices, SessionManager sm) =>
         {
-            var payload = await System.Text.Json.JsonSerializer.DeserializeAsync<ShortCodeLoginRequest>(req.Body);
-            if (payload is null || string.IsNullOrWhiteSpace(payload.ShortId))
+            RequestIdentity identity;
+            try
+            {
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices, inspectBodyForShortId: true);
+            }
+            catch (RequestIdentityException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            var shortId = identity.PlayerShortId;
+            if (string.IsNullOrWhiteSpace(shortId))
                 return Results.BadRequest(new { error = "shortId is required." });
 
-            var shortId = payload.ShortId.Trim();
-
-            req.Cookies.TryGetValue("player_id", out var playerCookie);
-            req.Cookies.TryGetValue("device_id", out var deviceCookie);
-
-            var context = await devices.EnsureAsync(playerCookie, deviceCookie);
+            var context = await devices.EnsureAsync(identity.PlayerId?.ToString(), identity.DeviceId);
             var targetPlayerId = await devices.TryGetPlayerIdByShortIdAsync(shortId);
             if (targetPlayerId is null)
                 return Results.NotFound(new { error = "Unknown short id." });
@@ -55,19 +68,27 @@ internal static class SessionEndpoints
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
-        app.MapPost("/session/logout", async (HttpRequest req, HttpResponse res, SessionManager sm) =>
+        app.MapPost("/session/logout", async (HttpRequest req, HttpResponse res, SessionManager sm, DeviceStore devices) =>
         {
-            var sessionId = req.Cookies["session_id"];
-            var pid = req.Cookies["player_id"];
-            if (!string.IsNullOrWhiteSpace(sessionId) && !string.IsNullOrWhiteSpace(pid))
-                await sm.RevokeIfActiveAsync(pid, sessionId);
+            RequestIdentity identity;
+            try
+            {
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices);
+            }
+            catch (RequestIdentityException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            if (!string.IsNullOrWhiteSpace(identity.SessionId) && identity.PlayerId is Guid pid)
+                await sm.RevokeIfActiveAsync(pid.ToString(), identity.SessionId);
 
             EndpointHelpers.DeleteCookie(res, "session_id");
             return Results.Json(new { ok = true });
         })
         .WithMetadata(EndpointAccessMetadata.Public);
 
-        app.MapPost("/session/login/direct", async (DirectLoginRequest request, DeviceStore devices, SessionManager sm) =>
+        app.MapPost("/session/login/direct", async (HttpRequest req, DirectLoginRequest request, DeviceStore devices, SessionManager sm) =>
         {
             if (request is null)
                 return Results.BadRequest(new { error = "Missing request body." });
@@ -82,7 +103,18 @@ internal static class SessionEndpoints
             if (targetPlayer is null)
                 return Results.BadRequest(new { error = "Unknown player." });
 
-            var context = await devices.EnsureAsync(targetPlayer.Value.ToString(), request.DeviceId);
+            RequestIdentity identity;
+            try
+            {
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices);
+            }
+            catch (RequestIdentityException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            var deviceId = string.IsNullOrWhiteSpace(request.DeviceId) ? identity.DeviceId : request.DeviceId;
+            var context = await devices.EnsureAsync(targetPlayer.Value.ToString(), deviceId);
             if (context.PlayerId != targetPlayer.Value)
                 context = await devices.BindDeviceAsync(context, targetPlayer.Value.ToString());
 
@@ -100,7 +132,5 @@ internal static class SessionEndpoints
         .WithMetadata(EndpointAccessMetadata.Public);
     }
 }
-
-sealed record ShortCodeLoginRequest(string ShortId);
 
 sealed record DirectLoginRequest(string? PlayerId, string? PlayerShortId, string? DeviceId);
