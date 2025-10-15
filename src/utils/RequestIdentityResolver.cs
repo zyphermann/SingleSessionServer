@@ -8,21 +8,23 @@ internal static class RequestIdentityResolver
 {
     private static readonly string[] SessionIdHeaders = { "X-Session-Id", "SessionId", "sessionId", "session_id" };
     private static readonly string[] PlayerIdHeaders = { "X-Player-Id", "PlayerId", "playerId", "player_id" };
-    private static readonly string[] PlayerShortIdHeaders = { "X-Player-Short-Id", "PlayerShortId", "playerShortId", "player_short_id" };
+    private static readonly string[] PlayerShortIdHeaders = { "X-Player-Short-Id", "PlayerShortId", "playerShortId", "player_short_id", "shortId", "short_id" };
     private static readonly string[] DeviceIdHeaders = { "X-Device-Id", "DeviceId", "deviceId", "device_id" };
 
-    private const string CachedShortIdKey = "__resolver.shortId";
+    private const string CachedBodyIdentityKey = "__resolver.bodyIdentity";
 
     public static async Task<RequestIdentity> ResolveAsync(
         HttpRequest request,
         DeviceStore devices,
         bool requirePlayerId = false,
         bool requireSessionId = false,
-        bool requireDeviceId = false,
-        bool inspectBodyForShortId = false,
-        IPlayerIdentityRequest? requestBody = null)
+        bool requireDeviceId = false
+       )
     {
         Guid? playerId = null;
+
+        string? bodyPlayerId = null;
+        string? bodyShortId = null;
 
         var sessionId = GetFromCookieOrHeader(request, "session_id", SessionIdHeaders);
         var deviceId = GetFromCookieOrHeader(request, "device_id", DeviceIdHeaders);
@@ -32,29 +34,27 @@ internal static class RequestIdentityResolver
         if (!string.IsNullOrWhiteSpace(playerIdRaw) && Guid.TryParse(playerIdRaw, out var parsedPlayer))
             playerId = parsedPlayer;
 
-        if (requestBody is not null)
+        if (playerId is null)
         {
-            if (playerId is null && !string.IsNullOrWhiteSpace(requestBody.PlayerId) && Guid.TryParse(requestBody.PlayerId, out var parsed))
-                playerId = parsed;
-
-            if (string.IsNullOrWhiteSpace(playerShortId))
-            {
-                foreach (var candidate in requestBody.EnumeratePlayerShortIds())
-                {
-                    if (!string.IsNullOrWhiteSpace(candidate))
-                    {
-                        playerShortId = candidate.Trim();
-                        break;
-                    }
-                }
-            }
+            var bodyIdentity = await TryReadBodyIdentityAsync(request);
+            bodyPlayerId = bodyIdentity.PlayerId;
+            bodyShortId = bodyIdentity.PlayerShortId;
         }
 
-        if (string.IsNullOrWhiteSpace(playerShortId) && inspectBodyForShortId)
-            playerShortId = await TryReadShortIdFromBodyAsync(request);
+        if (playerId is null && !string.IsNullOrWhiteSpace(bodyPlayerId) && Guid.TryParse(bodyPlayerId, out var parsedBodyId))
+            playerId = parsedBodyId;
+
+        if (string.IsNullOrWhiteSpace(playerShortId) && !string.IsNullOrWhiteSpace(bodyShortId))
+            playerShortId = bodyShortId.Trim();
 
         if (!string.IsNullOrWhiteSpace(playerShortId))
             playerShortId = playerShortId.Trim();
+
+        if (string.IsNullOrWhiteSpace(playerShortId))
+        {
+            var context = await devices.TryGetAsync(playerId?.ToString(), deviceId);
+            playerShortId = context?.PlayerShortId;
+        }
 
         if (playerId is null && !string.IsNullOrWhiteSpace(playerShortId))
         {
@@ -75,25 +75,13 @@ internal static class RequestIdentityResolver
         return new RequestIdentity(playerId, playerShortId, sessionId, deviceId);
     }
 
-    private static async Task<string?> TryReadShortIdFromBodyAsync(HttpRequest request)
+    private static async Task<BodyIdentity> TryReadBodyIdentityAsync(HttpRequest request)
     {
-        if (!request.HttpContext.Items.TryGetValue(CachedShortIdKey, out var cached))
-        {
-            var shortId = await ReadShortIdInternalAsync(request);
-            request.HttpContext.Items[CachedShortIdKey] = shortId;
-            cached = shortId;
-        }
+        if (request.HttpContext.Items.TryGetValue(CachedBodyIdentityKey, out var cached) && cached is BodyIdentity identity)
+            return identity;
 
-        return cached as string;
-    }
-
-    private static async Task<string?> ReadShortIdInternalAsync(HttpRequest request)
-    {
-        if (request.ContentLength is null or <= 0)
-            return null;
-
-        if (!IsJson(request.ContentType))
-            return null;
+        if (request.ContentLength is null or <= 0 || !IsJson(request.ContentType))
+            return CacheIdentity(request, BodyIdentity.Empty);
 
         request.EnableBuffering();
         request.Body.Position = 0;
@@ -104,38 +92,47 @@ internal static class RequestIdentityResolver
             request.Body.Position = 0;
 
             if (document.RootElement.ValueKind != JsonValueKind.Object)
-                return null;
+                return CacheIdentity(request, BodyIdentity.Empty);
 
-            var root = document.RootElement;
-            if (TryGetString(root, "shortId", out var shortId))
-                return shortId;
-            if (TryGetString(root, "short_id", out shortId))
-                return shortId;
-            if (TryGetString(root, "playerShortId", out shortId))
-                return shortId;
-            if (TryGetString(root, "player_short_id", out shortId))
-                return shortId;
+            var playerId = TryGetString(document.RootElement, out var pid, PlayerIdHeaders) ? pid : null;
+            var shortId = TryGetString(document.RootElement, out var psid, PlayerShortIdHeaders) ? psid : null;
 
-            return null;
+            return CacheIdentity(request, new BodyIdentity(playerId, shortId));
         }
         catch (JsonException)
         {
             request.Body.Position = 0;
-            return null;
+            return CacheIdentity(request, BodyIdentity.Empty);
         }
         catch (IOException)
         {
             request.Body.Position = 0;
-            return null;
+            return CacheIdentity(request, BodyIdentity.Empty);
         }
     }
 
-    private static bool TryGetString(JsonElement root, string propertyName, out string? value)
+    private static BodyIdentity CacheIdentity(HttpRequest request, BodyIdentity identity)
     {
-        if (root.TryGetProperty(propertyName, out var element) && element.ValueKind == JsonValueKind.String)
+        request.HttpContext.Items[CachedBodyIdentityKey] = identity;
+        return identity;
+    }
+
+    private static bool TryGetString(JsonElement root, out string? value, params string[] propertyNames)
+    {
+        if (propertyNames is not null)
         {
-            value = element.GetString();
-            return true;
+            foreach (var name in propertyNames)
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                if (root.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String)
+                {
+                    var s = element.GetString();
+                    value = string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+                    return value is not null;
+                }
+            }
         }
 
         value = null;
@@ -182,6 +179,11 @@ internal static class RequestIdentityResolver
 
         return null;
     }
+}
+
+internal sealed record BodyIdentity(string? PlayerId, string? PlayerShortId)
+{
+    public static BodyIdentity Empty { get; } = new(null, null);
 }
 
 internal sealed record RequestIdentity(Guid? PlayerId, string? PlayerShortId, string? SessionId, string? DeviceId);

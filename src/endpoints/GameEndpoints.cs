@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -11,14 +10,7 @@ sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement S
 sealed record GameStateLoadRequest(
     string? PlayerId,
     string? PlayerShortId,
-    [property: JsonPropertyName("player_id_short")] string? PlayerIdShort) : IPlayerIdentityRequest
-{
-    public IEnumerable<string?> EnumeratePlayerShortIds()
-    {
-        yield return PlayerShortId;
-        yield return PlayerIdShort;
-    }
-}
+    [property: JsonPropertyName("player_id_short")] string? PlayerIdShort);
 
 internal static class GameEndpoints
 {
@@ -77,7 +69,9 @@ internal static class GameEndpoints
             RequestIdentity identity;
             try
             {
-                identity = await RequestIdentityResolver.ResolveAsync(req, devices, inspectBodyForShortId: true, requestBody: body);
+                identity = await RequestIdentityResolver.ResolveAsync(
+                    req,
+                    devices);
             }
             catch (RequestIdentityException ex)
             {

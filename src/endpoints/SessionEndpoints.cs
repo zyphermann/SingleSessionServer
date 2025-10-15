@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using System;
-using System.Collections.Generic;
 
 internal static class SessionEndpoints
 {
@@ -38,7 +37,7 @@ internal static class SessionEndpoints
             RequestIdentity identity;
             try
             {
-                identity = await RequestIdentityResolver.ResolveAsync(req, devices, inspectBodyForShortId: true);
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices);
             }
             catch (RequestIdentityException ex)
             {
@@ -69,7 +68,9 @@ internal static class SessionEndpoints
             RequestIdentity identity;
             try
             {
-                identity = await RequestIdentityResolver.ResolveAsync(req, devices, inspectBodyForShortId: true, requestBody: body);
+                identity = await RequestIdentityResolver.ResolveAsync(
+                    req,
+                    devices);
             }
             catch (RequestIdentityException ex)
             {
@@ -128,10 +129,4 @@ internal static class SessionEndpoints
     }
 }
 
-sealed record DirectLoginRequest(string? PlayerId, string? PlayerShortId, string? DeviceId) : IPlayerIdentityRequest
-{
-    public IEnumerable<string?> EnumeratePlayerShortIds()
-    {
-        yield return PlayerShortId;
-    }
-}
+sealed record DirectLoginRequest(string? PlayerId, string? PlayerShortId, string? DeviceId);
