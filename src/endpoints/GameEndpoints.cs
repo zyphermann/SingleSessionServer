@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -10,7 +11,14 @@ sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement S
 sealed record GameStateLoadRequest(
     string? PlayerId,
     string? PlayerShortId,
-    [property: JsonPropertyName("player_id_short")] string? PlayerIdShort);
+    [property: JsonPropertyName("player_id_short")] string? PlayerIdShort) : IPlayerIdentityRequest
+{
+    public IEnumerable<string?> EnumeratePlayerShortIds()
+    {
+        yield return PlayerShortId;
+        yield return PlayerIdShort;
+    }
+}
 
 internal static class GameEndpoints
 {
@@ -30,9 +38,9 @@ internal static class GameEndpoints
             return Results.Json(payload);
         });
 
-        group.MapGet("/{slug}", async (string slug, GameStore store) =>
+        group.MapGet("/{slug}", async (string slug, GameStore games) =>
         {
-            var def = await store.TryGetAsync(slug);
+            var def = await games.TryGetAsync(slug);
             if (def is not GameDefinition definition)
                 return Results.NotFound(new { error = "Game not found" });
 
@@ -64,34 +72,22 @@ internal static class GameEndpoints
             return Results.Json(new GameDefinitionResponse(definition.GameId, definition.Slug, definition.DisplayName, json.Clone()));
         });
 
-        group.MapPost("/{slug}/state/load", async (HttpRequest req, GameStateLoadRequest? loadRequest, string slug, GameStore store, DeviceStore devices) =>
+        group.MapPost("/{slug}/state/load", async (HttpRequest req, GameStateLoadRequest? body, string slug, GameStore store, DeviceStore devices) =>
         {
-            Guid? playerId = null;
-
-            if (req.Cookies.TryGetValue("player_id", out var playerCookie) && Guid.TryParse(playerCookie, out var cookiePlayerId))
-                playerId = cookiePlayerId;
-
-            if (playerId is null && loadRequest is not null && !string.IsNullOrWhiteSpace(loadRequest.PlayerId))
+            RequestIdentity identity;
+            try
             {
-                var raw = loadRequest.PlayerId.Trim();
-                if (Guid.TryParse(raw, out var parsed))
-                    playerId = parsed;
+                identity = await RequestIdentityResolver.ResolveAsync(req, devices, inspectBodyForShortId: true, requestBody: body);
+            }
+            catch (RequestIdentityException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
             }
 
-            if (playerId is null && loadRequest is not null)
-            {
-                var shortId = loadRequest.PlayerShortId;
-                if (string.IsNullOrWhiteSpace(shortId))
-                    shortId = loadRequest.PlayerIdShort;
-
-                if (!string.IsNullOrWhiteSpace(shortId))
-                    playerId = await devices.TryGetPlayerIdByShortIdAsync(shortId.Trim());
-            }
-
-            if (playerId is null)
+            if (identity.PlayerId is null)
                 return Results.BadRequest(new { error = "Unknown player. Provide player_id cookie or playerId/player_id_short in body." });
 
-            var gameState = await store.LoadAsync(playerId.Value, slug);
+            var gameState = await store.LoadAsync(identity.PlayerId.Value, slug);
             if (gameState is null)
                 return Results.NotFound(new { error = "Game not found." });
 

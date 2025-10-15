@@ -19,19 +19,36 @@ internal static class RequestIdentityResolver
         bool requirePlayerId = false,
         bool requireSessionId = false,
         bool requireDeviceId = false,
-        bool inspectBodyForShortId = false)
+        bool inspectBodyForShortId = false,
+        IPlayerIdentityRequest? requestBody = null)
     {
+        Guid? playerId = null;
+
         var sessionId = GetFromCookieOrHeader(request, "session_id", SessionIdHeaders);
         var deviceId = GetFromCookieOrHeader(request, "device_id", DeviceIdHeaders);
-
-        Guid? playerId = null;
         var playerIdRaw = GetFromCookieOrHeader(request, "player_id", PlayerIdHeaders);
+        var playerShortId = GetFromCookieOrHeader(request, "playerShortId", PlayerShortIdHeaders);
+
         if (!string.IsNullOrWhiteSpace(playerIdRaw) && Guid.TryParse(playerIdRaw, out var parsedPlayer))
             playerId = parsedPlayer;
 
-        var playerShortId = GetFromHeader(request, PlayerShortIdHeaders);
-        if (string.IsNullOrWhiteSpace(playerShortId))
-            playerShortId = GetFromCookie(request, "playerShortId");
+        if (requestBody is not null)
+        {
+            if (playerId is null && !string.IsNullOrWhiteSpace(requestBody.PlayerId) && Guid.TryParse(requestBody.PlayerId, out var parsed))
+                playerId = parsed;
+
+            if (string.IsNullOrWhiteSpace(playerShortId))
+            {
+                foreach (var candidate in requestBody.EnumeratePlayerShortIds())
+                {
+                    if (!string.IsNullOrWhiteSpace(candidate))
+                    {
+                        playerShortId = candidate.Trim();
+                        break;
+                    }
+                }
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(playerShortId) && inspectBodyForShortId)
             playerShortId = await TryReadShortIdFromBodyAsync(request);
@@ -48,8 +65,10 @@ internal static class RequestIdentityResolver
 
         if (requirePlayerId && playerId is null)
             throw new RequestIdentityException("Missing player id.");
+
         if (requireSessionId && string.IsNullOrWhiteSpace(sessionId))
             throw new RequestIdentityException("Missing session id.");
+
         if (requireDeviceId && string.IsNullOrWhiteSpace(deviceId))
             throw new RequestIdentityException("Missing device id.");
 
