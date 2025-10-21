@@ -6,10 +6,16 @@ internal static class EmailVerificationEndpoints
     {
         var group = app.MapGroup("/email/verification");
 
-        group.MapPost("/start", async (HttpRequest req, EmailVerificationService verifications, IEmailSender sender, IConfiguration cfg) =>
+        group.MapPost("/start", async (HttpRequest req, EmailVerificationService verifications, IEmailSender sender, IConfiguration cfg, DeviceStore devices) =>
         {
-            if (!req.Cookies.TryGetValue("player_id", out var playerCookie) || !Guid.TryParse(playerCookie, out var playerId))
-                return Results.BadRequest(new { error = "Missing or invalid player_id cookie." });
+            RequestIdentity? identity = await RequestIdentityResolver.ResolveAsync(req, devices, requirePlayerId: true);
+
+            if (identity is null || identity.PlayerId is null)
+            {
+                return Results.BadRequest(new { error = "Missing or invalid player id." });
+            }
+
+            var playerId = identity.PlayerId.Value;
 
             EmailVerificationRequest? payload;
             try

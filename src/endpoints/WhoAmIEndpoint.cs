@@ -8,16 +8,24 @@ internal static class WhoAmIEndpoint
     {
         app.MapGet("/whoami", async (HttpRequest req, DeviceStore devices) =>
         {
-            req.Cookies.TryGetValue("player_id", out var pid);
-            req.Cookies.TryGetValue("device_id", out var did);
-            req.Cookies.TryGetValue("session_id", out var sid);
-            var ctx = await devices.TryGetAsync(pid, did);
+            RequestIdentity? identity = await RequestIdentityResolver.ResolveAsync(req, devices);
+            if (identity is null)
+            {
+                identity = new RequestIdentity(null, null, null, null);
+            }
+
+            DeviceContext? ctx = null;
+            if (identity.PlayerId is Guid resolvedPlayer)
+            {
+                ctx = await devices.TryGetAsync(resolvedPlayer.ToString(), identity.DeviceId);
+            }
+
             return Results.Json(new
             {
-                playerId = pid,
-                playerShortId = ctx?.PlayerShortId,
-                deviceId = did,
-                session_id = sid
+                playerId = identity.PlayerId?.ToString(),
+                playerShortId = ctx?.PlayerShortId ?? identity.PlayerShortId,
+                deviceId = identity.DeviceId,
+                sessionId = identity.SessionId
             });
         })
         .WithMetadata(EndpointAccessMetadata.Public);

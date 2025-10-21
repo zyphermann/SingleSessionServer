@@ -24,16 +24,12 @@ sealed class SessionEnforcementMiddleware : IMiddleware
             return;
         }
 
-        RequestIdentity identity;
-        try
-        {
-            identity = await RequestIdentityResolver.ResolveAsync(
+        RequestIdentity? identity = await RequestIdentityResolver.ResolveAsync(
                 context.Request,
                 _deviceStore,
                 requirePlayerId: true,
                 requireSessionId: true);
-        }
-        catch (RequestIdentityException)
+        if (identity is null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("No session.");
@@ -53,7 +49,7 @@ sealed class SessionEnforcementMiddleware : IMiddleware
         var ok = await _sessionManager.ValidateAsync(playerId, sessionId, sliding: true);
         if (!ok)
         {
-            EndpointHelpers.DeleteCookie(context.Response, "session_id");
+            IdentityHeaderWriter.ClearSessionHeader(context.Response);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Signed out: login from another device.");
             return;

@@ -45,24 +45,24 @@ A minimal API that allows exactly one active session per player.
    curl -i -X POST http://localhost:5082/device/init
    ```
 
-   The response sets the `player_id` and `device_id` cookies and returns the short player code (`playerShortId`). Include both cookies in follow-up requests.
+   The response adds `X-Player-Id`, `X-Device-Id`, and `X-Player-Short-Id` headers and returns the short player code (`playerShortId`) in the body. Include those headers in follow-up requests.
 
 2. **Create a session**
 
    ```bash
    curl -i -X POST http://localhost:5082/session/login \
-        --cookie "player_id=<value-from-step-1>" \
-        --cookie "device_id=<value-from-step-1>"
+        -H "X-Player-Id: <value-from-step-1>" \
+        -H "X-Device-Id: <value-from-step-1>"
    ```
 
-   The response contains a `session_id` cookie. The server now has exactly one active session for the player.
+   The response contains an `X-Session-Id` header. The server now has exactly one active session for the player.
 
 3. **Check status**
    ```bash
    curl -i http://localhost:5082/whoami \
-        --cookie "player_id=<playerId>" \
-        --cookie "device_id=<deviceId>" \
-        --cookie "session_id=<sessId>"
+        -H "X-Player-Id: <playerId>" \
+        -H "X-Device-Id: <deviceId>" \
+        -H "X-Session-Id: <sessId>"
    ```
    The currently authenticated combination of `playerId`, `deviceId`, and `sessId` is returned.
 
@@ -71,8 +71,8 @@ A minimal API that allows exactly one active session per player.
 - `POST /device/transfer/start` can send a one-time magic-link email to transfer a session to another browser.
 - `GET /server/info` returns runtime information about the process (uptime, environment, etc.).
 - `GET /whoami/{sessionId}` returns player information for a session id (helpful for Godot/mobile clients storing only the session token).
-- `POST /session/login/short` lets a device join an existing player account by providing the short id (after calling `/device/init`).
-- `POST /session/login/direct` performs the login without relying on cookies (pass `playerId` or `playerShortId` and optionally a known `deviceId`).
+- `POST /session/login/short` lets a device join an existing player account by providing the short id (after calling `/device/init`); send the values via request headers.
+- `POST /session/login/direct` performs the login without relying on cookies (pass `playerId` or `playerShortId` and optionally a known `deviceId`) by setting the appropriate headers.
 - Devices (`devices`) and sessions (`sessions`) are persisted in PostgreSQL. Initial tables are created automatically by `db/init/01-schema.sql`.
 - Authenticated players can initiate email verification via `POST /email/verification/start`; the link in the email targets `GET /email/verification/confirm?token=…`. Only confirmed addresses are persisted on player records.
 

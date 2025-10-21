@@ -1,7 +1,7 @@
 public static class EndpointPaths
 {
-    public const string Init = "device/init";
-    public const string TransferStart = "device/transfer/start";
-    public const string TransferAccept = "device/transfer/accept";
+    public const string Init = "init";
+    public const string TransferStart = "transfer/start";
+    public const string TransferAccept = "transfer/accept";
 
 }

@@ -6,14 +6,19 @@ using System.Threading.Tasks;
 
 internal static class RequestIdentityResolver
 {
-    private static readonly string[] SessionIdHeaders = { "X-Session-Id", "SessionId", "sessionId", "session_id" };
-    private static readonly string[] PlayerIdHeaders = { "X-Player-Id", "PlayerId", "playerId", "player_id" };
-    private static readonly string[] PlayerShortIdHeaders = { "X-Player-Short-Id", "PlayerShortId", "playerShortId", "player_short_id", "shortId", "short_id" };
-    private static readonly string[] DeviceIdHeaders = { "X-Device-Id", "DeviceId", "deviceId", "device_id" };
+    internal const string PlayerIdHeader = "X-Player-Id";
+    internal const string PlayerShortIdHeader = "X-Player-Short-Id";
+    internal const string DeviceIdHeader = "X-Device-Id";
+    internal const string SessionIdHeader = "X-Session-Id";
+
+    private static readonly string[] SessionIdHeaders = { SessionIdHeader, "SessionId", "sessionId", "session_id" };
+    private static readonly string[] PlayerIdHeaders = { PlayerIdHeader, "PlayerId", "playerId", "player_id" };
+    private static readonly string[] PlayerShortIdHeaders = { PlayerShortIdHeader, "PlayerShortId", "playerShortId", "player_short_id", "shortId", "short_id" };
+    private static readonly string[] DeviceIdHeaders = { DeviceIdHeader, "DeviceId", "deviceId", "device_id" };
 
     private const string CachedBodyIdentityKey = "__resolver.bodyIdentity";
 
-    public static async Task<RequestIdentity> ResolveAsync(
+    public static async Task<RequestIdentity?> ResolveAsync(
         HttpRequest request,
         DeviceStore devices,
         bool requirePlayerId = false,
@@ -26,10 +31,10 @@ internal static class RequestIdentityResolver
         string? bodyPlayerId = null;
         string? bodyShortId = null;
 
-        var sessionId = GetFromCookieOrHeader(request, "session_id", SessionIdHeaders);
-        var deviceId = GetFromCookieOrHeader(request, "device_id", DeviceIdHeaders);
-        var playerIdRaw = GetFromCookieOrHeader(request, "player_id", PlayerIdHeaders);
-        var playerShortId = GetFromCookieOrHeader(request, "playerShortId", PlayerShortIdHeaders);
+        var sessionId = GetFromHeaders(request, SessionIdHeaders);
+        var deviceId = GetFromHeaders(request, DeviceIdHeaders);
+        var playerIdRaw = GetFromHeaders(request, PlayerIdHeaders);
+        var playerShortId = GetFromHeaders(request, PlayerShortIdHeaders);
 
         if (!string.IsNullOrWhiteSpace(playerIdRaw) && Guid.TryParse(playerIdRaw, out var parsedPlayer))
             playerId = parsedPlayer;
@@ -64,13 +69,13 @@ internal static class RequestIdentityResolver
         }
 
         if (requirePlayerId && playerId is null)
-            throw new RequestIdentityException("Missing player id.");
+            return null;
 
         if (requireSessionId && string.IsNullOrWhiteSpace(sessionId))
-            throw new RequestIdentityException("Missing session id.");
+            return null;
 
         if (requireDeviceId && string.IsNullOrWhiteSpace(deviceId))
-            throw new RequestIdentityException("Missing device id.");
+            return null;
 
         return new RequestIdentity(playerId, playerShortId, sessionId, deviceId);
     }
@@ -142,24 +147,7 @@ internal static class RequestIdentityResolver
     private static bool IsJson(string? contentType)
         => contentType is not null && contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase);
 
-    private static string? GetFromCookieOrHeader(HttpRequest request, string cookieName, params string[] headerNames)
-    {
-        var value = GetFromCookie(request, cookieName);
-        if (!string.IsNullOrWhiteSpace(value))
-            return value;
-        return GetFromHeader(request, headerNames);
-    }
-
-    private static string? GetFromCookie(HttpRequest request, string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return null;
-        return request.Cookies.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value
-            : null;
-    }
-
-    private static string? GetFromHeader(HttpRequest request, params string[] names)
+    private static string? GetFromHeaders(HttpRequest request, params string[] names)
     {
         if (names is null || names.Length == 0)
             return null;
