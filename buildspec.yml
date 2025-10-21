@@ -1,0 +1,23 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: eu-central-1
+    APP_IMAGE_URI: 707561189180.dkr.ecr.eu-central-1.amazonaws.com/zentronic/singlesession
+
+phases:
+  pre_build:
+    commands:
+      - aws --version
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${APP_IMAGE_URI%/*}
+  build:
+    commands:
+      - docker build -t $APP_IMAGE_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION -f Dockerfile .
+      - docker tag $APP_IMAGE_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION $APP_IMAGE_URI:latest
+  post_build:
+    commands:
+      - docker push $APP_IMAGE_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - docker push $APP_IMAGE_URI:latest
+
+artifacts:
+  files: []

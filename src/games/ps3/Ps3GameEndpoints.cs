@@ -13,6 +13,7 @@ internal static class Ps3GameEndpoints
         var group = app.MapGroup($"/api/games/{GameSlug}")
                        .WithMetadata(EndpointAccessMetadata.Private);
 
+        /// start a game session
         group.MapPost(
             "/game/{gameStateId:guid}/start",
             async (HttpRequest req, Guid gameStateId, GameStore games, DeviceStore devices) =>
@@ -26,9 +27,10 @@ internal static class Ps3GameEndpoints
                 throw new NotImplementedException();
             });
 
+        /// play a move in an existing game session
         group.MapPost(
-            "/game/{gameStateId:guid}/next",
-            async (HttpRequest req, Guid gameStateId, GameStore games, DeviceStore devices) =>
+            "/game/{gameStateId:guid}/play/{index:int}",
+            async (HttpRequest req, Guid gameStateId, int index, GameStore games, DeviceStore devices) =>
             {
                 // TODO: implement game logic with MPT and maths here
                 RequestIdentity? identity = await RequestIdentityResolver.ResolveAsync(req, devices, requirePlayerId: true);
