@@ -7,7 +7,7 @@ internal static class EndpointRegistration
         DeviceEndpoints.Map(app);
         SessionEndpoints.Map(app);
         GameEndpoints.Map(app);
-        Ps3GameEndpoints.Map(app);
+        Ps3GameSessionEndpoints.Map(app);
         WhoAmIEndpoint.Map(app);
         ServerInfo.Map(app);
         EmailTestEndpoint.Map(app);

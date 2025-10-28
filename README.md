@@ -34,8 +34,9 @@ A minimal API that allows exactly one active session per player.
 4. Open the application: `http://localhost:8880`
 5. Access the Adminer UI at `http://localhost:8081` (server: `db`, credentials from `.env`).
 6. The database is reachable locally at `localhost:${DB_PORT}` (default `55532`).
-7. Stop and clean up the containers with `docker compose down`.
+7. Stop and clean up the containers with `docker compose down`. To erase volumes (db) as well: `docker compose down --volumes`
 8. Start and run in background: `docker compose up --build -d`
+9. If you need to execute the 01-schema.sql again: `docker compose exec db sh -c 'psql -U "$DB_USER" -d "$DB_DATABASE" -f /docker-entrypoint-initdb.d/01-schema.sql`
 
 ## Example flow
 

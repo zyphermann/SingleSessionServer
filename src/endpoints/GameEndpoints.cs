@@ -6,7 +6,9 @@ sealed record GameDefinitionRequest(string? DisplayName, JsonElement? DefaultSta
 
 sealed record GameDefinitionResponse(Guid Id, string Slug, string DisplayName, JsonElement DefaultState);
 
-sealed record GameStateResponse(GameDefinitionResponse Definition, JsonElement State, bool Created);
+sealed record LoadGameStateResponse(GameDefinitionResponse Definition, JsonElement State, bool Created);
+
+sealed record GameStateResponse(string Game, Guid GameStateId, JsonElement State);
 
 sealed record GameStateLoadRequest(
     string? PlayerId,
@@ -83,7 +85,7 @@ internal static class GameEndpoints
                    if (snapshot is not { } state || !string.Equals(state.Slug, slug, StringComparison.OrdinalIgnoreCase))
                        return Results.NotFound(new { error = "Game state not found." });
 
-                   return Results.Json(new Ps3StateResponse(
+                   return Results.Json(new GameStateResponse(
                        state.Slug,
                        state.GameStateId,
                        state.State.Clone()));
@@ -115,7 +117,7 @@ internal static class GameEndpoints
                 var initialState = BuildInitialState(game, shortId);
                 var persisted = await games.UpsertStateAsync(playerId, game, initialState);
 
-                return Results.Json(new Ps3StateResponse(
+                return Results.Json(new GameStateResponse(
                     game.Slug,
                     persisted.GameStateId,
                     persisted.State.Clone()));
@@ -141,7 +143,7 @@ internal static class GameEndpoints
                 if (gameState is null)
                     return Results.NotFound(new { error = "Game not found." });
 
-                return Results.Json(new GameStateResponse(
+                return Results.Json(new LoadGameStateResponse(
                     new GameDefinitionResponse(
                         gameState.Definition.GameId,
                         gameState.Definition.Slug,
@@ -184,7 +186,7 @@ internal static class GameEndpoints
                 if (updated is not { } result || !string.Equals(result.Slug, slug, StringComparison.OrdinalIgnoreCase))
                     return Results.NotFound(new { error = "Game state not found." });
 
-                return Results.Json(new Ps3StateResponse(
+                return Results.Json(new GameStateResponse(
                     result.Slug,
                     result.GameStateId,
                     result.State.Clone()));
@@ -255,7 +257,7 @@ internal static class GameEndpoints
                 if (updated is not { } result || !string.Equals(result.Slug, slug, StringComparison.OrdinalIgnoreCase))
                     return Results.NotFound(new { error = "Game state not found." });
 
-                return Results.Json(new Ps3StateResponse(
+                return Results.Json(new GameStateResponse(
                     result.Slug,
                     result.GameStateId,
                     result.State.Clone()));

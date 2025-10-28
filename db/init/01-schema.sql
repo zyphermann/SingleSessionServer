@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS game_states (
 
 CREATE INDEX IF NOT EXISTS idx_game_states_player ON game_states(player_id);
 
+CREATE TABLE IF NOT EXISTS game_sessions (
+    game_session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    game_state_id UUID NOT NULL REFERENCES game_states(game_state_id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+    session_index INTEGER NOT NULL,
+    session_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    UNIQUE (game_state_id, session_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_sessions_player ON game_sessions(player_id);
+CREATE INDEX IF NOT EXISTS idx_game_sessions_state ON game_sessions(game_state_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
     session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
